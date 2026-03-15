@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-03-15 13:34:32",
+  "config": {
+    "keep_english": false,
+    "min_full_text_len": 20,
+    "min_seg_word_count": 10,
+    "stopwords_count": 210,
+    "keywords_count": 114
+  },
+  "stats": {
+    "total_input": 15661,
+    "valid_samples": 14552,
+    "invalid_samples": 1109,
+    "valid_ratio": 0.9291871527999489
+  },
+  "quality_distribution": {
+    "empty_title": 0,
+    "empty_desc": 75,
+    "short_text": 353,
+    "few_words": 1109,
+    "valid": 14552
+  }
+}
