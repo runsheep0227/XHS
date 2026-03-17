@@ -3,9 +3,9 @@ import json
 import random
 
 def main():
-    print("正在为您执行数据随机抽样与字段精简...")
+    print("正在执行数据随机抽样与字段精简...")
     
-    # 【稳妥的路径获取】：动态获取当前脚本所在目录的绝对路径 (即 .../comment/)
+    # 动态获取当前脚本所在目录的绝对路径 (即 .../comment/)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     # 动态拼接数据路径
@@ -31,13 +31,13 @@ def main():
         print(f"⚠️ 全量数据不足 {SAMPLE_SIZE} 条，将直接提取全部数据。")
         SAMPLE_SIZE = total_len
 
-    # 3. 设定随机种子，保证每次抽样结果一致（学术研究必备，方便复现）
+    # 3. 设定随机种子，保证每次抽样结果一致（可复现）
     random.seed(42)
     
     # 4. 执行随机抽样
     sampled_data = random.sample(data, SAMPLE_SIZE)
     
-    # 5. 【新增核心逻辑】：过滤冗余字段，大模型仅需要 note_id 和 content
+    # 5. 过滤冗余字段，大模型仅需要 note_id 和 content
     filtered_sample_data =[]
     for item in sampled_data:
         filtered_sample_data.append({

@@ -14,8 +14,12 @@ from tqdm import tqdm
 plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows 系统下使用黑体
 plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
 
-# 我们定义的 5 个情感维度，用于图表展示
-TARGET_NAMES =["惊叹/期待", "赞同/喜悦", "客观/中立", "焦虑/担忧", "愤怒/抵触"]
+# 核心定义：原始标签与模型内部ID的映射（解决负数标签问题）
+LABEL2ID = {-1: 0, 0: 1, 1: 2}
+ID2LABEL = {0: -1, 1: 0, 2: 1}
+
+# 严格对应内部 ID: 0, 1, 2 的顺序！用于图表和报告展示
+TARGET_NAMES =["负向情感(-1)", "中性情感(0)", "正向情感(1)"]
 
 # ================= 2. 简易的数据集类 =================
 class TestDataset(Dataset):
@@ -46,7 +50,7 @@ class TestDataset(Dataset):
         }
 
 def main():
-    print("📊 正在为您启动模型学术评估程序...")
+    print("📊 主人，正在为您启动 3分类情感大模型 的学术评估程序...")
     
     # ================= 3. 路径配置 =================
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,14 +68,20 @@ def main():
         print(f"❌ 找不到模型文件夹：{model_dir}\n请确保您已经成功运行了 train_roberta.py。")
         return
 
-    # ================= 4. 加载测试数据 =================
+    # ================= 4. 加载测试数据与清洗 =================
     print("📁 正在读取测试集...")
     df_test = pd.read_csv(test_file)
     df_test = df_test.dropna(subset=['content', 'label'])
     
-    texts = df_test['content'].tolist()
-    true_labels = df_test['label'].tolist()
+    # 【核心过滤逻辑】：剔除解析失败(2)和API失败(-2)的脏数据
+    df_test = df_test[df_test['label'].isin([-1, 0, 1])].copy()
     
+    texts = df_test['content'].tolist()
+    # 将原始业务标签 (-1, 0, 1) 映射为底层运算所需的 ID (0, 1, 2)
+    true_labels = [LABEL2ID[label] for label in df_test['label'].tolist()]
+    
+    print(f"✅ 成功清洗并加载 {len(texts)} 条有效测试数据。")
+
     # ================= 5. 加载微调好的模型与分词器 =================
     print("🧠 正在唤醒您的专属 RoBERTa 模型...")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -84,10 +94,10 @@ def main():
 
     # ================= 6. 批处理推理 (防止显存溢出) =================
     test_dataset = TestDataset(texts, true_labels, tokenizer)
-    # 测试时不需要计算梯度，batch_size 可以设置大一点，如 32 或 64
+    # 测试时不需要计算梯度，batch_size 设为 32 或 64
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     
-    pred_labels =[]
+    pred_labels =[] # 这里存的也是 0, 1, 2
     
     print("🔍 正在对测试集进行盲测推理...")
     with torch.no_grad(): # 禁用梯度计算，极大地节省显存并加速
@@ -107,7 +117,7 @@ def main():
     acc = accuracy_score(true_labels, pred_labels)
     macro_f1 = f1_score(true_labels, pred_labels, average='macro')
     
-    # 详细的分类报告（精确率、召回率、F1）
+    # 详细的分类报告（精确率、召回率、F1），这里直接使用底层的 0, 1, 2 进行计算，并用 TARGET_NAMES 翻译
     class_report = classification_report(
         true_labels, pred_labels, 
         target_names=TARGET_NAMES, 
@@ -117,11 +127,11 @@ def main():
     # 组装文本报告
     final_report = (
         "====================================================\n"
-        "           AIGC 情感分析模型 - 终极测试报告\n"
+        "           AIGC 情感分析模型(3分类) - 终极测试报告\n"
         "====================================================\n"
         f"🎯 总体准确率 (Accuracy):  {acc:.4f}\n"
         f"🏆 宏F1分数 (Macro-F1):    {macro_f1:.4f}\n\n"
-        "📊 细粒度情绪分类表现:\n"
+        "📊 情绪分类详细表现:\n"
         f"{class_report}\n"
         "====================================================\n"
     )
@@ -140,12 +150,12 @@ def main():
     # 使用 seaborn 绘制热力图，cmap选择学术界常用的蓝调 (Blues)
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
                 xticklabels=TARGET_NAMES, yticklabels=TARGET_NAMES,
-                annot_kws={"size": 12})
+                annot_kws={"size": 14}) # 字体稍微调大，更清晰
                 
     plt.title('模型情感分类混淆矩阵 (Confusion Matrix)', fontsize=15, pad=15)
     plt.ylabel('真实情绪标签 (True Label)', fontsize=12)
     plt.xlabel('模型预测情绪 (Predicted Label)', fontsize=12)
-    plt.xticks(rotation=45) # x轴标签稍微旋转，防止文字挤在一起
+    plt.xticks(rotation=0) # 3分类不拥挤，不需要旋转了
     plt.tight_layout()
     
     # 保存高分辨率图片，dpi=300 直接满足期刊论文印刷要求
@@ -153,7 +163,7 @@ def main():
     plt.close()
     
     print(f"🎉 评估大功告成！\n📄 报告已保存至: {report_file}\n🖼️ 混淆矩阵图已保存至: {cm_file}")
-    print("💡 您可以直接打开 results 文件夹，欣赏您的科研成果啦！")
+    print("💡 主人，您可以直接打开 results 文件夹，欣赏您的科研成果啦！")
 
 if __name__ == "__main__":
     main()

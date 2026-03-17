@@ -96,7 +96,7 @@ if __name__ == "__main__":
     # 加载无意义词表
     meaningless_word_set = load_meaningless_words(MEANINGLESS_WORD_FILE)
 
-    # 初始化统计指标（学术论文可直接引用）
+    # 初始化统计指标
     stats = {
         "total_input_count": 0,                # 输入总评论数
         "invalid_char_filtered": 0,             # 特殊符号清理后为空过滤条数
