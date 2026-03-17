@@ -13,7 +13,7 @@ from transformers import (
 from sklearn.metrics import accuracy_score, f1_score
 
 # ==================== 核心配置与标签映射 ====================
-# 新增：您定义的5层标签名称映射（核心修改）
+# 定义的5层标签名称映射
 LABEL_NAMES = {
     1: "正向情感（强正向/弱正向）",
     0: "中性情感（客观/中立）",
@@ -52,12 +52,12 @@ def main():
     
     os.makedirs(output_model_dir, exist_ok=True)
 
-    # ==================== 2. 高级数据清洗与加载 ====================
+    # ==================== 2. 数据加载 ====================
     print("📁 正在加载并清洗训练集和验证集...")
     df_train = pd.read_csv(train_file)
     df_val = pd.read_csv(val_file)
     
-    # 【核心过滤逻辑】：仅保留 label 为 -1, 0, 1 的有效数据
+    # 仅保留 label 为 -1, 0, 1 的有效数据
     # 自动丢弃 2(解析失败) 和 -2(调用失败) 的数据
     valid_labels =[-1, 0, 1]
     
@@ -77,9 +77,12 @@ def main():
         print("❌ 灾难性错误：训练集/验证集无有效数据！请检查 CSV 文件中是否包含 -1, 0, 1 标签。")
         return
     
-    # 打印清洗后的分布情况，彰显学术严谨性
+    # 打印清洗后的分布情况
+    # 
     print("\n📊 训练集有效数据分布：")
-    train_ori_counts = df_train['label'].value_counts().sort_index()
+    train_ori_counts =      df_train['label'].value_counts().sort_index()
+    total_train = len(df_train)  # 获取总数量
+    print(f"📈 训练集总计: {total_train} 条")  # 显示总数量
     for label in valid_labels:
         count = train_ori_counts.get(label, 0)
         print(f"   ➤ {LABEL_NAMES[label]}: {count} 条")
@@ -109,7 +112,7 @@ def main():
     # ==================== 4. 显存优化：动态分词与张量化 ====================
     def tokenize_function(examples):
         # 对于小红书评论，128字能覆盖99%的文本。
-        return tokenizer(examples["content"], truncation=True, max_length=128)
+        return tokenizer(examples["content"], truncation=True, max_length=256)
 
     print("✂️ 正在对文本进行高效分词与张量编码...")
     tokenized_train = train_dataset.map(tokenize_function, batched=True, remove_columns=["content"])
@@ -117,8 +120,8 @@ def main():
     
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-    # ==================== 5. RTX 5070 黄金训练超参数 ====================
-    print("⚙️ 正在为您注入 8GB 显卡专属的黄金训练配置...")
+    # ==================== 5. 训练超参数设置 ====================
+    print("⚙️ 正在为设置训练配置...")
     training_args = TrainingArguments(
         output_dir=os.path.join(current_dir, 'checkpoint_temp'), 
         num_train_epochs=4,                 
@@ -150,7 +153,7 @@ def main():
         compute_metrics=compute_metrics     
     )
 
-    print("🔥 引擎全开！RTX 5070 开始高强度反向传播！")
+    print("🔥 开始高强度反向传播！")
     trainer.train()
 
     # ==================== 7. 保存巅峰模型与配置 ====================
@@ -169,10 +172,10 @@ def main():
         }, f, ensure_ascii=False, indent=4)
         
     print(f"📝 标签字典已同步保存至: {config_path}")
-    print("\n💡 工程师提示：微调结束！您的专属大模型已出炉，赶紧使用 evaluate_model.py 查收它的考试成绩单吧！")
+    print("\n💡 微调结束！您的专属大模型已出炉，赶紧使用 evaluate_model.py 查收它的考试成绩单吧！")
 
 if __name__ == "__main__":
-    # 【工程师绝招】：训练前强制清空显存碎片，确保以 100% 的可用状态启动！
+    # 训练前强制清空显存碎片，确保以 100% 的可用状态启动！
     torch.cuda.empty_cache()
     # 开启 CUDA 同步调试（若遇底层报错可快速定位）
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"

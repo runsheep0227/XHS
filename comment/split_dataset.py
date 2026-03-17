@@ -27,7 +27,7 @@ def main():
     total_raw = len(df)
     print(f"✅ 成功读取标注数据，共计 {total_raw} 条。")
     
-    # ========== 核心修正1：仅保留有效情感标签(-1/0/1)，剔除所有无效标签 ==========
+    # ========== 仅保留有效情感标签(-1/0/1)，剔除所有无效标签 ==========
     # 第一步：筛选有效标签（-1/0/1）
     df_valid_label = df[df['label'].isin(VALID_LABELS)].copy()
     invalid_label_count = total_raw - len(df_valid_label)
@@ -52,7 +52,7 @@ def main():
         print("❌ 清理后无有效数据！请检查标注结果中的label列是否包含-1/0/1。")
         return
 
-    # ========== 核心修正2：检查有效标签的样本数，处理分层抽样小样本问题 ==========
+    # ========== 检查有效标签的样本数，处理分层抽样小样本问题 ==========
     # 统计有效标签的样本数
     label_counts = df_clean['label'].value_counts().sort_index()
     print("\n📊 有效情感标签分布（仅-1/0/1）：")
