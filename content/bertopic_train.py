@@ -1,7 +1,3 @@
-"""
-bertopic_train.py - BERTopic主题建模训练脚本
-"""
-
 import pandas as pd
 import numpy as np
 import pickle
@@ -39,19 +35,19 @@ LOG_DIR = WORK_DIR / "logs"
 INPUT_FILE = DATA_DIR / "bertopic_train_data.csv"
 
 # 随机种子
-RANDOM_STATE = 42
+RANDOM_STATE = 13 # 固定随机种子，保持可重复性
 
 # 嵌入模型
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-MAX_SEQ_LENGTH = 256
+EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2" # 嵌入模型，将文本转换为高维向量
+MAX_SEQ_LENGTH = 256 # 如果文本较长，可以使用预处理分段或使用滑动窗口
 
 # UMAP降维参数
 # 降维到2维便于K-Means聚类
 UMAP_PARAMS = {
-    "n_neighbors": 15,
-    "n_components": 2,  # K-Means只需要2维
-    "metric": "cosine",
-    "min_dist": 0.1,     # 保持一定距离
+    "n_neighbors": 15, # 平衡局部vs全局结构（默认15）
+    "n_components": 2,  # 降维到 2D 是为了 K-Means 可视化友好，但会损失信息。官方默认为5，用于HDBSCAN。
+    "metric": "cosine",# 默认使用余弦相似度，更适合文本数据
+    "min_dist": 0.1,     # 保持一定距离，避免过度分散
     "random_state": RANDOM_STATE,
     "n_epochs": 200,
     "learning_rate": 0.01,
@@ -161,7 +157,7 @@ def initialize_models():
     logger.info(f"\n🎯 K-Means聚类")
     logger.info(f"   聚类数量: {N_TOPICS} (强制)")
     kmeans_model = KMeans(
-        n_clusters=N_TOPICS,
+        n_clusters=N_TOPICS,# N_TOPICS=5,强制5个主题,替代了BERTopic
         random_state=RANDOM_STATE,
         n_init=10,
         max_iter=300
@@ -170,8 +166,8 @@ def initialize_models():
     # 4. 词向量模型
     logger.info(f"\n📊 CountVectorizer")
     vectorizer_model = CountVectorizer(
-        min_df=2,
-        max_df=0.95,
+        min_df=2, # 词最少出现两次
+        max_df=0.95, #忽略出现在95%以上文档中的词
         ngram_range=(1, 2),
         stop_words=None
     )
@@ -180,8 +176,8 @@ def initialize_models():
     logger.info(f"\n📈 c-TF-IDF")
     from bertopic.vectorizers import ClassTfidfTransformer
     ctfidf_model = ClassTfidfTransformer(
-        reduce_frequent_words=True,
-        bm25_weighting=True
+        reduce_frequent_words=True, # 降低跨主题高频词权重
+        bm25_weighting=True # 使用BM25加权，比传统TF-IDF更适合短文本
     )
     
     return embedding_model, umap_model, kmeans_model, vectorizer_model, ctfidf_model

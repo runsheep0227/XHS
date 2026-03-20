@@ -107,9 +107,9 @@ comment/
 │   ├── bert_train_ready.csv       # BERT训练格式数据
 │   ├── llm_sample_data.json       # 大模型标注样本（5,000条）
 │   ├── llm_labeled_result.csv     # 大模型标注结果
-│   ├── train.csv                  # 训练集（约2,400条）
-│   ├── val.csv                    # 验证集（约300条）
-│   ├── test.csv                   # 测试集（约300条）
+│   ├── train.csv                  # 训练集（约4,000条）
+│   ├── val.csv                    # 验证集（约500条）
+│   ├── test.csv                   # 测试集（约500条）
 │   └── clean_data_report.txt      # 清洗报告
 │
 ├── 📁 saved_model/                # 微调后的模型文件

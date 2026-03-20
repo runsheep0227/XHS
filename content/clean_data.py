@@ -1,13 +1,3 @@
-"""
-clean_data.py - 数据清洗脚本
-
-功能：
-1. 数据质量校验
-2. 文本清洗（标点，数字、表情等）
-3. 分词处理
-4. 质量过滤与报告
-"""
-
 import json
 import os
 import re
