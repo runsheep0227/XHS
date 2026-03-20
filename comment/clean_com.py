@@ -20,6 +20,16 @@ EMOJI_PATTERN = re.compile(r"\[([^\[\]]+)\]")
 # 原始数据文件名匹配规则
 FILE_NAME_PATTERN = "search_comments_"
 
+# ===================== 新增：文本质量检查配置 =====================
+# 过短文本阈值：少于此长度的文本会被过滤
+MIN_TEXT_LENGTH = 5
+# 检查纯表情/特殊符号的正则（重复的表情符号、笑声、省略号等）
+PURE_EMOJI_PATTERN = re.compile(r"^[😀-🙏\U0001F300-\U0001F9FF哈呵嘻嘿呀哎呃啊嗯\s。，、；：？！…~\-_]*$")
+# 纯数字正则
+PURE_NUMBER_PATTERN = re.compile(r"^\d+$")
+# 纯汉字重复（如"哈哈哈"、"不不不"）
+PURE_REPEATED_PATTERN = re.compile(r"^(.)\1{2,}$")
+
 # ===================== 表情文字处理回调函数=====================
 def process_emoji_text(match):
     """
@@ -33,24 +43,55 @@ def process_emoji_text(match):
     cleaned_emoji = emoji_text.rstrip('R').strip()
     return cleaned_emoji
 
+
+def is_meaningful_content(content):
+    """
+    检查清洗后的内容是否有实质意义
+    返回：(是否有意义, 过滤原因)
+    """
+    # 1. 检查文本长度
+    if len(content) < MIN_TEXT_LENGTH:
+        return False, "too_short"
+    
+    # 2. 检查纯数字内容
+    if PURE_NUMBER_PATTERN.match(content):
+        return False, "pure_number"
+    
+    # 3. 检查纯重复字符（如"哈哈哈"）
+    if PURE_REPEATED_PATTERN.match(content):
+        return False, "pure_repeated"
+    
+    # 4. 检查是否全是表情符号、特殊符号等（这个正则较宽松，可能需要根据实际调整）
+    if PURE_EMOJI_PATTERN.match(content):
+        return False, "pure_emoji"
+    
+    return True, "valid"
+
+
 # ===================== 初始化变量 =====================
 cleaned_result = []
 content_unique_set = set()
 # 统计指标
 total_raw_count = 0           # 原始总数据量
 pure_at_filtered = 0          # 纯@数据过滤条数
+too_short_filtered = 0        # 过短文本过滤条数
+pure_number_filtered = 0      # 纯数字过滤条数
+pure_repeated_filtered = 0    # 纯重复字符过滤条数
+pure_emoji_filtered = 0       # 纯表情无意义内容过滤条数
 duplicate_filtered = 0        # 重复内容过滤条数
 emoji_processed_count = 0     # 成功处理表情的评论条数
-pure_emoji_filtered = 0       # 纯表情无意义内容过滤条数
 
 # ===================== 核心清洗逻辑 =====================
 if __name__ == "__main__":
-    print("="*60)
-    print("开始执行小红书评论初期数据清洗（含表情核心文字提取+去R优化）...")
-    print("-"*60)
+    print("="*70)
+    print("开始执行小红书评论深度数据清洗")
+    print("（含表情核心文字提取+去R优化+过短文本过滤+质量检查）...")
+    print("-"*70)
     print(f"【路径校验】当前脚本所在目录：{SCRIPT_DIR}")
     print(f"【路径校验】原始数据文件夹路径：{RAW_DATA_DIR}")
     print(f"【路径校验】输出文件路径：{OUTPUT_FILE}")
+    print(f"【参数配置】最小文本长度阈值：{MIN_TEXT_LENGTH} 个字符")
+    print("-"*70)
 
     # 1. 检查原始数据文件夹是否存在
     if not os.path.exists(RAW_DATA_DIR):
@@ -110,13 +151,23 @@ if __name__ == "__main__":
             processed_content = processed_content.strip()
             cleaned_comment["content"] = processed_content
 
-            # -------------------- 过滤纯@/纯表情无意义数据（清洗后内容为空） --------------------
-            if not processed_content:
-                # 区分是纯@还是纯表情过滤，用于统计
-                if len(original_content.strip()) > 0 and not AT_PATTERN.sub("", original_content).strip():
+            # -------------------- 过滤规则：检查内容是否有实质意义 --------------------
+            is_meaningful, filter_reason = is_meaningful_content(processed_content)
+            
+            if not is_meaningful:
+                # 如果是纯@（去除@后内容为空），单独计数
+                if not processed_content and AT_PATTERN.sub("", original_content).strip():
                     pure_at_filtered += 1
                 else:
-                    pure_emoji_filtered += 1
+                    # 按不同原因统计过滤条数
+                    if filter_reason == "too_short":
+                        too_short_filtered += 1
+                    elif filter_reason == "pure_number":
+                        pure_number_filtered += 1
+                    elif filter_reason == "pure_repeated":
+                        pure_repeated_filtered += 1
+                    elif filter_reason == "pure_emoji":
+                        pure_emoji_filtered += 1
                 continue
 
             # -------------------- 清洗规则4：content去重，完全相同的内容仅保留一条 --------------------
@@ -134,13 +185,23 @@ if __name__ == "__main__":
         print(f"错误：写入输出文件失败，错误信息：{str(e)}")
         exit(1)
 
-    # 6. 输出清洗统计结果
-    print("数据清洗全部完成！")
-    print(f"原始总评论数：{total_raw_count} 条")
-    print(f"过滤纯@无意义评论：{pure_at_filtered} 条")
-    print(f"过滤纯表情无意义评论：{pure_emoji_filtered} 条")
-    print(f"处理表情的有效评论：{emoji_processed_count} 条")
-    print(f"过滤重复内容评论：{duplicate_filtered} 条")
-    print(f"最终保留有效评论：{len(cleaned_result)} 条")
+    # 6. 输出清洗统计结果（分类统计）
+    print("\n【数据清洗完成统计】")
+    print("-"*70)
+    print(f"原始总评论数：              {total_raw_count:>8} 条")
+    print(f"├─ 纯@无意义评论：          {pure_at_filtered:>8} 条")
+    print(f"├─ 过短文本（<{MIN_TEXT_LENGTH}字）：        {too_short_filtered:>8} 条")
+    print(f"├─ 纯数字评论：             {pure_number_filtered:>8} 条")
+    print(f"├─ 纯重复字符：             {pure_repeated_filtered:>8} 条")
+    print(f"├─ 纯表情符号：             {pure_emoji_filtered:>8} 条")
+    print(f"└─ 重复内容（去重）：       {duplicate_filtered:>8} 条")
+    print("-"*70)
+    total_filtered = (pure_at_filtered + too_short_filtered + pure_number_filtered + 
+                      pure_repeated_filtered + pure_emoji_filtered + duplicate_filtered)
+    print(f"总计过滤条数：              {total_filtered:>8} 条")
+    print(f"最终保留有效评论：          {len(cleaned_result):>8} 条")
+    print(f"处理表情的有效评论：        {emoji_processed_count:>8} 条")
+    print(f"过滤率：                    {(total_filtered/total_raw_count*100) if total_raw_count > 0 else 0:>7.1f}%")
+    print("-"*70)
     print(f"清洗后数据已保存至：{OUTPUT_FILE}")
-    print("="*60)
+    print("="*70)
