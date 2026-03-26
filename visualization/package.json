@@ -4,13 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm install --prefer-offline && vite",
-    "build": "pnpm install --prefer-offline && rm -rf node_modules/.vite-temp && tsc -b && vite build",
-    "build:prod": "pnpm install --prefer-offline && rm -rf node_modules/.vite-temp && tsc -b && BUILD_MODE=prod vite build",
-    "lint": "pnpm install --prefer-offline && eslint .",
-    "preview": "pnpm install --prefer-offline && vite preview",
-    "install-deps": "pnpm install --prefer-offline",
-    "clean": "rm -rf node_modules .pnpm-store pnpm-lock.yaml && pnpm store prune"
+    "dev": "vite",
+    "build": "rm -rf node_modules/.vite-temp && tsc -b && vite build",
+    "build:prod": "rm -rf node_modules/.vite-temp && tsc -b && BUILD_MODE=prod vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf node_modules .vite-temp dist",
+    "check": "node scripts/check-setup.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -49,6 +48,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.364.0",
     "next-themes": "^0.4.4",
+    "playwright": "1.57.0",
     "react": "^18.3.1",
     "react-day-picker": "8.10.1",
     "react-dom": "^18.3.1",
@@ -59,7 +59,6 @@
     "sonner": "^1.7.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "playwright": "1.57.0",
     "vaul": "^1.1.2",
     "zod": "^3.24.1"
   },
@@ -72,9 +71,10 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "10.4.20",
     "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
-    "globals": "^15.12.0",    
+    "globals": "^15.12.0",
     "postcss": "8.4.49",
     "tailwindcss": "v3.4.16",
     "typescript": "~5.6.2",

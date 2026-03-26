@@ -241,7 +241,7 @@ export default function ContentJudge() {
         {!result && !isLoading && (
           <div className="text-center py-12 text-gray-400">
             <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>填写内容后点击"开始判断"获取AI分析结果</p>
+            <p>填写内容后点击&quot;开始判断&quot;获取AI分析结果</p>
           </div>
         )}
       </main>
