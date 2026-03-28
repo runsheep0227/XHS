@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-28 15:53:07",
+  "timestamp": "2026-03-28 16:27:06",
   "config": {
     "keep_english": true,
     "min_full_text_len": 20,
     "min_seg_word_count": 10,
     "stopwords_count": 214,
-    "keywords_count": 122
+    "keywords_count": 124
   },
   "stats": {
     "total_input": 18980,

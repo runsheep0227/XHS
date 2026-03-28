@@ -56,7 +56,8 @@ MACRO_ANCHORS = {
             "红黑榜", "避雷", "安利", "好用", "不好用", "功能", "更新", "版本",
             "插件", "工具", "平台", "网站", "API", "免费", "付费", "会员",
             "豆包", "天工", "讯飞", "百川", "智谱", "GLM", "Gemini", "Copilot",
-            "即梦", "造点", "liblib", "nanobanana pro", "软件"
+            "即梦", "造点", "liblib", "nanobanana pro", "软件","龙虾","openai","openclaw"
+            "千问","Qwen"
         ]))
     },
     "AI学习教程": {
