@@ -25,6 +25,10 @@ export interface RawNote {
   time: number
   note_url: string
   nickname: string
+  // ── 新增字段（来自原始 JSON）──
+  video_url?: string
+  source_keyword?: string
+  image_list?: string
 }
 
 export interface TopicRecord {
@@ -49,6 +53,10 @@ export interface TopicRecord {
   tag_list?: string
   note_url?: string
   nickname?: string
+  // ── 新增字段（来自原始 JSON 关联合并）──
+  type?: 'normal' | 'video'   // 图文 / 视频
+  source_keyword?: string      // 采集来源关键词
+  image_count?: number         // 图片数量
 }
 
 export interface Topic {
@@ -63,7 +71,6 @@ export interface Topic {
   avgShares: number
   avgConfidence: number
   confidenceRate: number
-  trend: number[]
   macroTopic: string
   rawRecords: TopicRecord[]
 }
@@ -236,6 +243,10 @@ export async function loadTopicCSV(): Promise<TopicRecord[]> {
         tag_list: raw?.tag_list,
         note_url: raw?.note_url,
         nickname: raw?.nickname,
+        // ── 新增字段 ──
+        type: raw?.video_url ? 'video' : 'normal',
+        source_keyword: raw?.source_keyword,
+        image_count: raw?.image_list ? raw.image_list.split(',').filter(Boolean).length : 0,
       }
     })
 
@@ -263,6 +274,72 @@ export async function loadRawNotes(): Promise<RawNote[]> {
   } catch {
     return []
   }
+}
+
+// ============================================================
+// topic_distribution_stats.csv 加载（宏观主题关键词）
+// 字段：macro_topic, micro_topic_id, note_count, keywords, confidence
+// ============================================================
+
+export interface TopicStats {
+  macro_topic: string
+  micro_topic_id: number
+  note_count: number
+  keywords: string[]
+  confidence: number
+}
+
+/**
+ * 加载 topic_distribution_stats.csv，返回宏观主题关键词数据
+ */
+export async function loadTopicStats(): Promise<TopicStats[]> {
+  try {
+    const manifest = await fetchManifest()
+    const bertFiles = manifest?.bertopic || []
+    const statsFile = bertFiles.find(f => f.includes('topic_distribution_stats')) || bertFiles[1]
+    if (!statsFile) return []
+
+    const resp = await fetch(`${CONTENT_SERVER}/bertopic/${encodeURIComponent(statsFile)}`)
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const csvText = await resp.text()
+    const rows = parseCSV(csvText)
+
+    const stats: TopicStats[] = rows.map(row => ({
+      macro_topic: row['macro_topic'] || row['macro_topic_name'] || '',
+      micro_topic_id: parseInt(row['micro_topic_id'] || '0', 10),
+      note_count: parseNum(row['note_count']),
+      keywords: (row['keywords'] || '')
+        .split(',')
+        .map((k: string) => k.trim())
+        .filter(Boolean),
+      confidence: parseFloat(row['confidence'] || '0'),
+    })).filter(s => s.macro_topic !== '')
+
+    console.log(`[DataLoader] 已加载 ${stats.length} 条主题统计数据`)
+    return stats
+  } catch (e) {
+    console.warn('[DataLoader] loadTopicStats 失败:', e)
+    return []
+  }
+}
+
+/** 从主题统计构建全局关键词词云（带权重） */
+export function buildKeywordCloud(stats: TopicStats[]) {
+  if (!stats || stats.length === 0) return []
+  // 权重 = note_count * confidence，关键词按 macro_topic 分组
+  return stats
+    .filter(s => s.keywords.length > 0)
+    .flatMap(s =>
+      s.keywords.map(keyword => ({
+        keyword,
+        macro_topic: s.macro_topic,
+        note_count: s.note_count,
+        confidence: s.confidence,
+        // 权重：综合考虑笔记数量和置信度
+        weight: Math.round(s.note_count * s.confidence),
+      }))
+    )
+    .sort((a, b) => b.weight - a.weight)
 }
 
 // ============================================================
@@ -428,18 +505,12 @@ export function aggregateTopics(_records?: TopicRecord[]): Topic[] {
       avgShares: Math.round(group.reduce((s, r) => s + (r.share_count || 0), 0) / Math.max(group.length, 1)),
       avgConfidence,
       confidenceRate: parseFloat(highConfRate.toFixed(3)),
-      trend: generateTrend(data.length, group.length),
       macroTopic: macroName,
       rawRecords: group,
     })
   }
 
   return topics.sort((a, b) => b.noteCount - a.noteCount)
-}
-
-function generateTrend(totalRecords: number, groupCount: number): number[] {
-  const base = Math.max(1, Math.floor(groupCount / 7))
-  return [3, 5, 4, 7, 6, 8, 9].map(v => base * v)
 }
 
 export function buildInteractionMatrix(topics: Topic[]) {
@@ -451,22 +522,6 @@ export function buildInteractionMatrix(topics: Topic[]) {
     shares: t.avgShares,
     discusses: 0,
   }))
-}
-
-export function buildTrendData(records: TopicRecord[]) {
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date()
-    d.setDate(d.getDate() - 6 + i)
-    const dateStr = d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
-    const dayCount = Math.max(5, Math.floor(records.length / 60))
-    return {
-      date: dateStr,
-      notes: dayCount + Math.floor(Math.random() * 15),
-      likes: dayCount * 12,
-      comments: dayCount * 2,
-      collects: dayCount * 5,
-    }
-  })
 }
 
 export function toNotes(records: TopicRecord[]): Note[] {
@@ -493,4 +548,117 @@ export function toNotes(records: TopicRecord[]): Note[] {
       commentList: [],
     }
   })
+}
+
+// ============================================================
+// 新增聚合函数
+// ============================================================
+
+/** 图文 vs 视频 内容类型分布 */
+export function buildTypeDistribution(records: TopicRecord[]) {
+  const valid = records.filter(r => r.type !== undefined)
+  const total = valid.length || 1
+  const normal = valid.filter(r => r.type === 'normal').length
+  const video = valid.filter(r => r.type === 'video').length
+  return [
+    { id: 'normal', name: '图文笔记', value: normal, color: '#f43f5e', pct: normal / total },
+    { id: 'video', name: '视频笔记', value: video, color: '#8b5cf6', pct: video / total },
+  ]
+}
+
+/** 标签频率分析（全局 TOP N） */
+export function buildTagFrequency(records: TopicRecord[], topN = 30) {
+  const tagMap = new Map<string, { count: number; topics: Set<string> }>()
+  for (const r of records) {
+    if (!r.tag_list) continue
+    const macro = r.macro_topic || '未分类'
+    for (const tag of r.tag_list.split(',').map(t => t.trim()).filter(Boolean)) {
+      if (!tagMap.has(tag)) tagMap.set(tag, { count: 0, topics: new Set() })
+      const entry = tagMap.get(tag)!
+      entry.count++
+      entry.topics.add(macro)
+    }
+  }
+  return Array.from(tagMap.entries())
+    .map(([tag, { count, topics }]) => ({ tag, count, topics: Array.from(topics) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, topN)
+}
+
+/** IP 属地地理分布 */
+export function buildIPDistribution(records: TopicRecord[]) {
+  const locMap = new Map<string, number>()
+  let unknownCount = 0
+  for (const r of records) {
+    if (!r.ip_location || r.ip_location.trim() === '') {
+      unknownCount++
+      continue
+    }
+    locMap.set(r.ip_location, (locMap.get(r.ip_location) || 0) + 1)
+  }
+  const total = records.length || 1
+  const knownTotal = total - unknownCount
+  const items = Array.from(locMap.entries())
+    .map(([location, count]) => ({
+      location,
+      count,
+      pct: knownTotal > 0 ? count / knownTotal : 0, // 用已知IP数作为分母
+    }))
+    .sort((a, b) => b.count - a.count)
+
+  if (unknownCount > 0) {
+    items.push({
+      location: '未知IP',
+      count: unknownCount,
+      pct: unknownCount / total,
+    })
+  }
+  return items
+}
+
+/** 采集来源关键词分布 */
+export function buildSourceKeywordDistribution(records: TopicRecord[]) {
+  const kwMap = new Map<string, number>()
+  for (const r of records) {
+    if (!r.source_keyword) continue
+    kwMap.set(r.source_keyword, (kwMap.get(r.source_keyword) || 0) + 1)
+  }
+  return Array.from(kwMap.entries())
+    .map(([keyword, count]) => ({ keyword, count }))
+    .sort((a, b) => b.count - a.count)
+}
+
+/** 综合互动指标统计（用于内容分析页） */
+export function buildEngagementStats(records: TopicRecord[]) {
+  const valid = records.filter(r => r.liked_count !== undefined)
+  const getAvg = (field: 'liked_count' | 'collected_count' | 'comment_count' | 'share_count' | 'image_count') =>
+    valid.length ? Math.round(valid.reduce((s, r) => s + (r[field] || 0), 0) / valid.length) : 0
+
+  const allLikes = valid.map(r => r.liked_count || 0)
+  const allCollects = valid.map(r => r.collected_count || 0)
+  const allComments = valid.map(r => r.comment_count || 0)
+  const allShares = valid.map(r => r.share_count || 0)
+
+  const percentile = (arr: number[], p: number) => {
+    const sorted = [...arr].sort((a, b) => a - b)
+    return sorted[Math.floor(sorted.length * p)] || 0
+  }
+
+  return {
+    totalNotes: records.length,
+    totalImages: valid.reduce((s, r) => s + (r.image_count || 0), 0),
+    avgLikes: getAvg('liked_count'),
+    avgCollects: getAvg('collected_count'),
+    avgComments: getAvg('comment_count'),
+    avgShares: getAvg('share_count'),
+    avgImageCount: getAvg('image_count'),
+    p75Likes: percentile(allLikes, 0.75),
+    p90Likes: percentile(allLikes, 0.90),
+    p75Collects: percentile(allCollects, 0.75),
+    p90Collects: percentile(allCollects, 0.90),
+    normalCount: valid.filter(r => r.type === 'normal').length,
+    videoCount: valid.filter(r => r.type === 'video').length,
+    topLocations: buildIPDistribution(records).filter(d => d.location !== '未知IP').slice(0, 5),
+    topKeywords: buildSourceKeywordDistribution(records).slice(0, 5),
+  }
 }

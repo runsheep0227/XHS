@@ -1,26 +1,39 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, BarChart3, PieChart as LucidePieChart, TrendingUp, X, Network, ArrowLeft, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, BarChart3, PieChart as LucidePieChart, TrendingUp, X, Network, ArrowLeft, Loader2, GitCompare } from 'lucide-react';
 import PieChart from '../components/common/PieChart';
 import { computePieSlices } from '../utils/pie';
 import {
   loadRawNotes,
   loadTopicCSV,
+  loadTopicStats,
   aggregateTopics,
   buildInteractionMatrix,
-  buildTrendData,
+  buildTypeDistribution,
+  buildTagFrequency,
+  buildIPDistribution,
+  buildEngagementStats,
+  buildKeywordCloud,
   toNotes,
   Topic,
   TopicRecord,
+  TopicStats,
 } from '../data/topicData';
 import { EmptyState } from '../components/common/States';
 import { formatNumber } from '../utils/responsive';
+import {
+  CompareView,
+  MetricFilterPanel,
+  AnimatedBarChart,
+  ExportButton,
+} from '../components/InteractiveCharts';
 
-type ViewMode = 'overview' | 'trend' | 'heatmap' | 'ranking' | 'bertopic' | 'confidence';
+type ViewMode = 'overview' | 'heatmap' | 'ranking' | 'bertopic' | 'confidence' | 'type' | 'tags' | 'geo' | 'compare';
 
 export default function TopicAnalysis() {
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [topics, setTopics] = useState<Topic[]>([]);
   const [allRecords, setAllRecords] = useState<TopicRecord[]>([]);
+  const [topicStats, setTopicStats] = useState<TopicStats[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,15 +42,21 @@ export default function TopicAnalysis() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // ─── 指标区间过滤状态 ───
+  const [filterLikes, setFilterLikes] = useState<[number, number]>([0, 0]);
+  const [filterComments, setFilterComments] = useState<[number, number]>([0, 0]);
+  const [filterCollects, setFilterCollects] = useState<[number, number]>([0, 0]);
+
   // ─── 数据加载（使用内存模拟数据）───
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [rawNotes, topicRecords] = await Promise.all([
+        const [rawNotes, topicRecords, stats] = await Promise.all([
           loadRawNotes(),
           loadTopicCSV(),
+          loadTopicStats(),
         ]);
 
         // 关联合并：把 raw JSON 的互动数据注入到 topicRecords
@@ -64,6 +83,7 @@ export default function TopicAnalysis() {
         setAllRecords(merged);
         const aggregated = aggregateTopics(merged);
         setTopics(aggregated);
+        setTopicStats(stats);
       } catch (e) {
         console.error('[TopicAnalysis] 数据加载失败:', e);
         setLoadError('数据加载失败，请检查控制台错误信息。');
@@ -79,8 +99,11 @@ export default function TopicAnalysis() {
     return topics
       .filter(
         (t) =>
-          t.name.includes(searchQuery) ||
-          t.keywords.some((k) => k.includes(searchQuery))
+          (t.name.includes(searchQuery) ||
+          t.keywords.some((k) => k.includes(searchQuery))) &&
+          t.avgLikes >= filterLikes[0] && t.avgLikes <= filterLikes[1] &&
+          t.avgComments >= filterComments[0] && t.avgComments <= filterComments[1] &&
+          t.avgCollects >= filterCollects[0] && t.avgCollects <= filterCollects[1]
       )
       .sort((a, b) => {
         if (sortBy === 'avgLikes') return b.avgLikes - a.avgLikes;
@@ -88,7 +111,7 @@ export default function TopicAnalysis() {
         if (sortBy === 'avgCollects') return b.avgCollects - a.avgCollects;
         return b.noteCount - a.noteCount;
       });
-  }, [topics, searchQuery, sortBy]);
+  }, [topics, searchQuery, sortBy, filterLikes, filterComments, filterCollects]);
 
   // ─── 选中主题的笔记 ───
   const topicNotes = useMemo(() => {
@@ -103,14 +126,48 @@ export default function TopicAnalysis() {
   const totalCollects = topics.reduce((s, t) => s + t.avgCollects * t.noteCount, 0);
   const totalRecords = allRecords.length;
 
+  // ─── 派生数据（useMemo 必须在所有 return 之前调用）───
+  const interactionMatrix = buildInteractionMatrix(topics);
+  const typeDistData = useMemo(() => buildTypeDistribution(allRecords), [allRecords]);
+  const tagFreqData = useMemo(() => buildTagFrequency(allRecords, 40), [allRecords]);
+  const ipDistData = useMemo(() => buildIPDistribution(allRecords), [allRecords]);
+  const engagementStats = useMemo(() => buildEngagementStats(allRecords), [allRecords]);
+  const keywordCloud = useMemo(() => buildKeywordCloud(topicStats), [topicStats]);
+
+  // ─── 指标滑块最大值 ───
+  const metricMaxValues = useMemo(() => {
+    const likes = Math.max(...topics.map(t => t.avgLikes), 1)
+    const comments = Math.max(...topics.map(t => t.avgComments), 1)
+    const collects = Math.max(...topics.map(t => t.avgCollects), 1)
+    return { likes, comments, collects }
+  }, [topics])
+
+  // ─── 初始化滑块范围 ───
+  useEffect(() => {
+    if (!loading && topics.length > 0) {
+      if (filterLikes[1] === 0) setFilterLikes([0, metricMaxValues.likes])
+      if (filterComments[1] === 0) setFilterComments([0, metricMaxValues.comments])
+      if (filterCollects[1] === 0) setFilterCollects([0, metricMaxValues.collects])
+    }
+  }, [loading, topics.length])
+
+  const handleMetricChange = useCallback((key: string, value: [number, number]) => {
+    if (key === 'likesMin') setFilterLikes(value as [number, number])
+    else if (key === 'commentsMin') setFilterComments(value as [number, number])
+    else if (key === 'collectsMin') setFilterCollects(value as [number, number])
+  }, [])
+
   // ─── 视图按钮配置 ───
   const viewButtons = [
     { id: 'overview', label: '主题概览', icon: <LucidePieChart className="w-4 h-4" /> },
-    { id: 'trend', label: '趋势分析', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'heatmap', label: '互动热力', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'ranking', label: '排行榜', icon: <span>🏆</span> },
     { id: 'bertopic', label: 'BERTopic', icon: <Network className="w-4 h-4" /> },
     { id: 'confidence', label: '置信度', icon: <span>🎯</span> },
+    { id: 'type', label: '内容分析', icon: <span>📷</span> },
+    { id: 'tags', label: '标签分析', icon: <span>🏷️</span> },
+    { id: 'geo', label: '地理分布', icon: <span>📍</span> },
+    { id: 'compare', label: '主题对比', icon: <GitCompare className="w-4 h-4" /> },
   ];
 
   // ─── 加载状态 ───
@@ -143,9 +200,6 @@ export default function TopicAnalysis() {
       </div>
     );
   }
-
-  const interactionMatrix = buildInteractionMatrix(topics);
-  const trendData = buildTrendData(allRecords);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-rose-100">
@@ -310,12 +364,38 @@ export default function TopicAnalysis() {
               <EmptyState type="search" />
             ) : (
               <>
-                {viewMode === 'overview' && <OverviewView topics={filteredTopics} />}
-                {viewMode === 'trend' && <TrendView data={trendData} />}
-                {viewMode === 'heatmap' && <HeatmapView data={interactionMatrix} />}
-                {viewMode === 'ranking' && <RankingView topics={filteredTopics} />}
-                {viewMode === 'bertopic' && <BERTopicView topics={filteredTopics} allRecords={allRecords} />}
-                {viewMode === 'confidence' && <ConfidenceView topics={filteredTopics} allRecords={allRecords} />}
+                {viewMode === 'compare' && (
+                  <CompareView
+                    topics={filteredTopics}
+                    allRecords={allRecords as unknown as Topic[]}
+                    onBack={() => setViewMode('overview')}
+                  />
+                )}
+                {viewMode !== 'compare' && (
+                  <>
+                    {/* 指标过滤器（除对比模式外都显示） */}
+                    <div className="mb-4">
+                      <MetricFilterPanel
+                        minLikes={filterLikes[0]}
+                        maxLikes={filterLikes[1]}
+                        minComments={filterComments[0]}
+                        maxComments={filterComments[1]}
+                        minCollects={filterCollects[0]}
+                        maxCollects={filterCollects[1]}
+                        onChange={handleMetricChange}
+                        maxValues={metricMaxValues}
+                      />
+                    </div>
+                    {viewMode === 'overview' && <OverviewView topics={filteredTopics} />}
+                    {viewMode === 'heatmap' && <HeatmapView data={interactionMatrix} />}
+                    {viewMode === 'ranking' && <RankingView topics={filteredTopics} />}
+                    {viewMode === 'bertopic' && <BERTopicView topics={filteredTopics} allRecords={allRecords} />}
+                    {viewMode === 'confidence' && <ConfidenceView topics={filteredTopics} allRecords={allRecords} />}
+                    {viewMode === 'type' && <TypeAnalysisView data={typeDistData} stats={engagementStats} records={allRecords} />}
+                    {viewMode === 'tags' && <TagAnalysisView data={tagFreqData} records={allRecords} keywordCloud={keywordCloud} topicStats={topicStats} />}
+                    {viewMode === 'geo' && <GeoDistributionView data={ipDistData} records={allRecords} topics={filteredTopics} />}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -367,6 +447,13 @@ const OVERVIEW_COLORS = [
 
 function OverviewView({ topics }: { topics: Topic[] }) {
   const total = topics.reduce((s, t) => s + t.noteCount, 0);
+  const [activeMetric, setActiveMetric] = useState<'avgLikes' | 'avgComments' | 'avgCollects' | 'avgShares'>('avgLikes')
+  const metricConfig = {
+    avgLikes: { label: '平均点赞', color: '#f43f5e', icon: '❤️' },
+    avgComments: { label: '平均评论', color: '#3b82f6', icon: '💬' },
+    avgCollects: { label: '平均收藏', color: '#22c55e', icon: '⭐' },
+    avgShares: { label: '平均分享', color: '#8b5cf6', icon: '📤' },
+  }
 
   const pieData = useMemo(() => {
     return topics.map((t, i) => ({
@@ -400,54 +487,35 @@ function OverviewView({ topics }: { topics: Topic[] }) {
           </div>
         </div>
 
-        {/* 主题列表 */}
-        <div className="space-y-2 max-h-[420px] overflow-y-auto">
-          {topics.map((topic, i) => (
-            <div
-              key={topic.id}
-              className="flex items-center gap-3 p-2 sm:p-3 rounded-xl bg-gradient-to-r from-gray-50 to-white hover:shadow-md transition-all"
-            >
-              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: OVERVIEW_COLORS[i % OVERVIEW_COLORS.length] }} />
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-700 truncate">{topic.name}</div>
-                <div className="text-xs text-gray-400">
-                  {formatNumber(topic.noteCount)} 篇 · 置信度 {formatNumber(topic.avgConfidence * 100)}%
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1 max-w-[120px] shrink-0">
-                {topic.keywords.slice(0, 3).map((kw) => (
-                  <span key={kw} className="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-xs rounded">{kw}</span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TrendView({ data }: { data: ReturnType<typeof buildTrendData> }) {
-  if (!data || data.length === 0) return <EmptyState type="data" title="暂无趋势数据" />;
-  const maxNotes = Math.max(...data.map((d) => d.notes), 1);
-
-  return (
-    <div>
-      <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-4 sm:mb-6">
-        发布趋势分析（{data[0]?.date || ''} ~ {data[data.length - 1]?.date || ''}）
-      </h3>
-      <div className="flex items-end justify-between h-48 sm:h-64 gap-2 sm:gap-4">
-        {data.map((day, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center">
-            <div
-              className="w-full bg-gradient-to-t from-rose-400 to-pink-400 rounded-t-lg transition-all hover:opacity-80 cursor-pointer"
-              style={{ height: `${Math.max((day.notes / maxNotes) * 150, 8)}px` }}
-              title={`${day.notes} 篇笔记`}
-            />
-            <span className="text-xs text-gray-500 mt-2">{day.date}</span>
-            <span className="text-xs text-rose-400 font-medium">{day.notes}篇</span>
+        {/* 主题列表 + 指标柱状图 */}
+        <div className="space-y-3">
+          {/* 指标切换标签 */}
+          <div className="flex gap-1.5">
+            {(Object.entries(metricConfig) as [typeof activeMetric, typeof metricConfig[typeof activeMetric]][]).map(([key, cfg]) => (
+              <button
+                key={key}
+                onClick={() => setActiveMetric(key)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeMetric === key
+                    ? 'text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+                style={activeMetric === key ? { backgroundColor: cfg.color } : {}}
+              >
+                <span>{cfg.icon}</span>
+                <span>{cfg.label}</span>
+              </button>
+            ))}
           </div>
-        ))}
+
+          {/* 交互式动画柱状图 */}
+          <AnimatedBarChart
+            topics={topics}
+            metric={activeMetric}
+            metricLabel={metricConfig[activeMetric].label}
+            color={metricConfig[activeMetric].color}
+          />
+        </div>
       </div>
     </div>
   );
@@ -837,21 +905,6 @@ function TopicDetailPanel({
         </div>
       </div>
 
-      {/* 7日趋势 */}
-      <div className="bg-white rounded-xl p-3 sm:p-4 mb-3 sm:mb-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">7日发布趋势</h3>
-        <div className="flex items-end gap-1 h-16">
-          {topic.trend.map((val, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              <div
-                className="w-full bg-gradient-to-t from-rose-400 to-pink-400 rounded-t transition-all"
-                style={{ height: `${Math.max((val / Math.max(...topic.trend, 1)) * 48, 4)}px` }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* 热门笔记 */}
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-2 sm:mb-3">热门笔记</h3>
@@ -877,6 +930,554 @@ function TopicDetailPanel({
       </div>
     </div>
   );
+}
+
+// ─── 内容分析视图（图文 vs 视频 + 综合互动统计）───
+function TypeAnalysisView({
+  data,
+  stats,
+  records,
+}: {
+  data: ReturnType<typeof buildTypeDistribution>
+  stats: ReturnType<typeof buildEngagementStats>
+  records: TopicRecord[]
+}) {
+  const pieSlices = useMemo(() => computePieSlices(data, 200, 200, 110), [data])
+
+  return (
+    <div className="space-y-6">
+      {/* 综合互动统计 */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: '平均点赞', value: formatNumber(stats.avgLikes), color: 'rose' },
+          { label: '平均收藏', value: formatNumber(stats.avgCollects), color: 'pink' },
+          { label: '平均评论', value: formatNumber(stats.avgComments), color: 'blue' },
+          { label: '平均分享', value: formatNumber(stats.avgShares), color: 'green' },
+        ].map(item => (
+          <div key={item.label} className={`bg-${item.color}-50 rounded-xl p-4 text-center`}>
+            <div className={`text-2xl font-bold text-${item.color}-600`}>{item.value}</div>
+            <div className="text-xs text-gray-500 mt-1">{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 内容类型饼图 */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-4">笔记内容类型分布</h3>
+          <div className="flex flex-col items-center">
+            <PieChart slices={pieSlices} />
+            <div className="mt-4 space-y-2 w-full">
+              {data.map(slice => (
+                <div key={slice.name} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: slice.color }} />
+                    <span className="text-gray-600">{slice.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-semibold text-gray-800">{slice.value}</span>
+                    <span className="text-gray-400 text-xs ml-1">({(slice.pct * 100).toFixed(1)}%)</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 深度互动分析 */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm space-y-4">
+          <h3 className="text-base font-semibold text-gray-700">互动深度分析</h3>
+          {[
+            { label: '收藏/点赞比', value: stats.avgCollects && stats.avgLikes ? (stats.avgCollects / stats.avgLikes).toFixed(2) : '—', icon: '⭐/❤️' },
+            { label: '评论/点赞比', value: stats.avgComments && stats.avgLikes ? (stats.avgComments / stats.avgLikes).toFixed(2) : '—', icon: '💬/❤️' },
+            { label: '分享/点赞比', value: stats.avgShares && stats.avgLikes ? (stats.avgShares / stats.avgLikes).toFixed(2) : '—', icon: '📤/❤️' },
+            { label: '平均图片数', value: stats.avgImageCount || '—', icon: '🖼️' },
+          ].map(item => (
+            <div key={item.label} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{item.icon}</span>
+                <span className="text-sm text-gray-600">{item.label}</span>
+              </div>
+              <span className="font-bold text-gray-800">{item.value}</span>
+            </div>
+          ))}
+
+          <div className="pt-2 border-t border-gray-100">
+            <h4 className="text-sm font-medium text-gray-600 mb-2">高点赞笔记分布</h4>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">P75 点赞数</span>
+                <span className="text-gray-700 font-medium">{formatNumber(stats.p75Likes)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">P90 点赞数</span>
+                <span className="text-gray-700 font-medium">{formatNumber(stats.p90Likes)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">P90 收藏数</span>
+                <span className="text-gray-700 font-medium">{formatNumber(stats.p90Collects)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 采集来源 */}
+      {stats.topKeywords.length > 0 && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-4">数据采集来源关键词</h3>
+          <div className="flex flex-wrap gap-2">
+            {stats.topKeywords.map(item => (
+              <span key={item.keyword} className="px-3 py-1.5 bg-rose-50 text-rose-600 text-sm rounded-full font-medium">
+                {item.keyword} ({item.count})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── 标签分析视图（词云 + 标签频率）───
+function TagAnalysisView({
+  data,
+  records,
+  keywordCloud,
+  topicStats,
+}: {
+  data: ReturnType<typeof buildTagFrequency>
+  records: TopicRecord[]
+  keywordCloud: ReturnType<typeof buildKeywordCloud>
+  topicStats: TopicStats[]
+}) {
+  const [tagMode, setTagMode] = useState<'cloud' | 'freq'>('cloud')
+  const [selectedKw, setSelectedKw] = useState<ReturnType<typeof buildKeywordCloud>[0] | null>(null)
+  const [hoveredKw, setHoveredKw] = useState<ReturnType<typeof buildKeywordCloud>[0] | null>(null)
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+
+  // ── 词云点击 → 展示关联笔记 + 关联宏观主题 ──
+  const selectedKwRecords = useMemo(() => {
+    if (!selectedKw) return []
+    return records.filter(r =>
+      r.tag_list?.split(',').map((t: string) => t.trim()).includes(selectedKw.keyword)
+    ).slice(0, 20)
+  }, [selectedKw, records])
+
+  // ── 主题配色映射 ──
+  const topicColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    const colors = ['#f43f5e', '#8b5cf6', '#3b82f6', '#14b8a6', '#f59e0b', '#ec4899', '#6366f1']
+    const macros = [...new Set(keywordCloud.map(k => k.macro_topic))]
+    macros.forEach((m, i) => map.set(m, colors[i % colors.length]))
+    return map
+  }, [keywordCloud])
+
+  // ── 词云字体大小（weight 越大字越大）──
+  const maxWeight = keywordCloud[0]?.weight || 1
+  const minWeight = keywordCloud[keywordCloud.length - 1]?.weight || 1
+  const fontSize = (weight: number) => {
+    const ratio = (weight - minWeight) / (maxWeight - minWeight + 1)
+    return Math.round(12 + ratio * 32) // 12px ~ 44px
+  }
+
+  const selectedKwTopics = useMemo(() => {
+    if (!selectedKw) return []
+    return keywordCloud
+      .filter(k => k.keyword === selectedKw.keyword)
+      .map(k => ({ topic: k.macro_topic, weight: k.weight, color: topicColorMap.get(k.macro_topic) || '#888' }))
+  }, [selectedKw, keywordCloud, topicColorMap])
+
+  return (
+    <div className="space-y-6">
+      {/* ── 模式切换 Tab ── */}
+      <div className="flex gap-2">
+        {[
+          { id: 'cloud', label: '🔮 关键词词云' },
+          { id: 'freq', label: '📊 标签频率排行' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => { setTagMode(tab.id as 'cloud' | 'freq'); setSelectedKw(null); setSelectedTag(null) }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+              tagMode === tab.id
+                ? 'bg-rose-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-rose-50'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 词云模式 ── */}
+      {tagMode === 'cloud' && (
+        <div className="space-y-6">
+          {keywordCloud.length === 0 ? (
+            <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
+              <p className="text-gray-400">暂无主题关键词数据</p>
+              <p className="text-xs text-gray-300 mt-1">请确认 topic_distribution_stats.csv 中包含 keywords 字段</p>
+            </div>
+          ) : (
+            <>
+              {/* 词云主体 */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-semibold text-gray-700">
+                    主题关键词词云
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {[...topicColorMap.entries()].slice(0, 6).map(([topic, color]) => (
+                      <span key={topic} className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+                        {topic.slice(0, 8)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 交互式词云 */}
+                <div className="flex flex-wrap gap-3 justify-center items-center min-h-[180px] p-4 bg-gray-50/50 rounded-xl">
+                  {keywordCloud.map((kw, i) => {
+                    const isSelected = selectedKw?.keyword === kw.keyword
+                    const isHov = hoveredKw?.keyword === kw.keyword
+                    const color = topicColorMap.get(kw.macro_topic) || '#888'
+                    return (
+                      <button
+                        key={`${kw.keyword}-${i}`}
+                        onClick={() => setSelectedKw(isSelected ? null : kw)}
+                        onMouseEnter={() => setHoveredKw(kw)}
+                        onMouseLeave={() => setHoveredKw(null)}
+                        className={`relative transition-all rounded-lg px-2 py-1 cursor-pointer select-none ${
+                          isSelected ? 'ring-2 ring-offset-1' : 'hover:ring-1'
+                        }`}
+                        style={{
+                          fontSize: `${fontSize(kw.weight)}px`,
+                          fontWeight: isSelected || isHov ? '700' : '500',
+                          color: isSelected || isHov ? color : '#555',
+                          opacity: selectedKw && !isSelected ? 0.35 : 1,
+                          transform: isHov && !isSelected ? 'scale(1.08)' : 'scale(1)',
+                          backgroundColor: isSelected ? `${color}18` : 'transparent',
+                          borderColor: color,
+                        }}
+                      >
+                        {kw.keyword}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* 悬浮提示 */}
+                {hoveredKw && (
+                  <div className="mt-3 text-xs text-gray-500 text-center">
+                    关键词「{hoveredKw.keyword}」
+                    · 所属主题：{hoveredKw.macro_topic}
+                    · 笔记权重：{hoveredKw.weight}
+                    · 点击可查看关联笔记
+                  </div>
+                )}
+              </div>
+
+              {/* 选中关键词 → 详情面板 */}
+              {selectedKw && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* 关联宏观主题 */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                      「{selectedKw.keyword}」关联主题
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedKwTopics.map(({ topic, weight, color }) => {
+                        const stat = topicStats.find(s => s.macro_topic === topic)
+                        return (
+                          <div key={topic} className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
+                            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-gray-700 truncate">{topic}</span>
+                                <span className="text-xs text-gray-400 ml-2 shrink-0">权重 {weight}</span>
+                              </div>
+                              {stat && (
+                                <div className="h-1 bg-gray-100 rounded-full mt-1.5 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all"
+                                    style={{
+                                      width: `${Math.min((weight / (maxWeight || 1)) * 100, 100)}%`,
+                                      backgroundColor: color,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 关联笔记 */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                      含「{selectedKw.keyword}」的笔记
+                      <span className="ml-2 text-xs text-gray-400 font-normal">
+                        共 {selectedKwRecords.length} 篇
+                      </span>
+                    </h3>
+                    <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                      {selectedKwRecords.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-6">暂无笔记关联此关键词</p>
+                      ) : (
+                        selectedKwRecords.map(r => (
+                          <div key={r.note_id} className="p-3 bg-gray-50 rounded-xl hover:bg-rose-50 transition-colors">
+                            <div className="text-sm font-medium text-gray-700 line-clamp-2">{r.title || r.content?.slice(0, 80)}</div>
+                            <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                              <span>❤️ {formatNumber(r.liked_count || 0)}</span>
+                              <span>⭐ {formatNumber(r.collected_count || 0)}</span>
+                              <span
+                                className="px-1.5 py-0.5 rounded text-white"
+                                style={{ backgroundColor: topicColorMap.get(r.macro_topic) || '#888' }}
+                              >
+                                {r.macro_topic}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── 标签频率排行模式 ── */}
+      {tagMode === 'freq' && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-4">笔记标签频率 TOP 40</h3>
+          {data.length === 0 ? (
+            <EmptyState type="data" title="暂无标签数据" description="tag_list 字段为空" />
+          ) : (
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+              {data.map((item, i) => (
+                <button
+                  key={item.tag}
+                  onClick={() => setSelectedTag(selectedTag === item.tag ? null : item.tag)}
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left ${
+                    selectedTag === item.tag ? 'bg-rose-50 ring-1 ring-rose-300' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="text-xs text-gray-400 w-5 text-right shrink-0 font-mono">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-sm font-medium ${selectedTag === item.tag ? 'text-rose-600' : 'text-gray-700'}`}>
+                        {item.tag}
+                      </span>
+                      <span className="text-xs text-gray-400 ml-2 shrink-0">{item.count} 篇</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-rose-400 to-pink-400 rounded-full transition-all"
+                        style={{ width: `${(item.count / (data[0]?.count || 1)) * 100}%` }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {item.topics.slice(0, 3).map(t => (
+                        <span key={t} className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 选中标签的关联笔记（频率模式） */}
+      {tagMode === 'freq' && selectedTag && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-3">
+            含「{selectedTag}」的笔记
+          </h3>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {records
+              .filter(r => r.tag_list?.split(',').map((t: string) => t.trim()).includes(selectedTag))
+              .slice(0, 20)
+              .map(r => (
+                <div key={r.note_id} className="p-3 bg-gray-50 rounded-xl">
+                  <div className="text-sm font-medium text-gray-700 line-clamp-1">{r.title || r.content?.slice(0, 60)}</div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                    <span>❤️ {formatNumber(r.liked_count || 0)}</span>
+                    <span>⭐ {formatNumber(r.collected_count || 0)}</span>
+                    <span className="text-rose-400">{r.macro_topic}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── 地理分布视图 ──
+function GeoDistributionView({
+  data,
+  records,
+  topics,
+}: {
+  data: ReturnType<typeof buildIPDistribution>
+  records: TopicRecord[]
+  topics: Topic[]
+}) {
+  const [selectedLoc, setSelectedLoc] = useState<string | null>(null)
+  const total = records.length || 1
+  const hasIPRecords = data.filter(d => d.location !== '未知IP')
+  const maxCount = hasIPRecords[0]?.count || 1
+  const unknownItem = data.find(d => d.location === '未知IP')
+  const knownTotal = total - (unknownItem?.count || 0)
+
+  const selectedRecords = useMemo(() => {
+    if (!selectedLoc) return []
+    if (selectedLoc === '未知IP') {
+      return records.filter(r => !r.ip_location || r.ip_location.trim() === '')
+    }
+    return records.filter(r => r.ip_location === selectedLoc)
+  }, [selectedLoc, records])
+
+  return (
+    <div className="space-y-6">
+      {/* 地图条形图 */}
+      <div className="bg-white rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-base font-semibold text-gray-700">创作者 IP 属地分布</h3>
+          {unknownItem && (
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+              {unknownItem.count} 条笔记无IP记录（{(unknownItem.pct * 100).toFixed(1)}%）
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mb-4">
+          基于 {knownTotal} 条有效IP记录的 ip_location 统计
+        </p>
+        {data.length === 0 ? (
+          <EmptyState type="data" title="暂无地理数据" description="ip_location 字段为空" />
+        ) : (
+          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+            {data.map((item, i) => {
+              const isUnknown = item.location === '未知IP'
+              const isSelected = selectedLoc === item.location
+              return (
+                <button
+                  key={item.location}
+                  onClick={() => setSelectedLoc(isSelected ? null : item.location)}
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left ${
+                    isSelected
+                      ? isUnknown ? 'bg-gray-100 ring-1 ring-gray-300' : 'bg-rose-50 ring-1 ring-rose-300'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="text-xs text-gray-400 w-5 text-right shrink-0 font-mono">{i + 1}</span>
+                  <span className={`text-sm w-16 shrink-0 font-medium ${isSelected ? 'text-rose-600' : 'text-gray-700'} ${isUnknown ? 'italic text-gray-500' : ''}`}>
+                    {item.location}
+                  </span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${isUnknown ? 'bg-gray-300' : 'bg-gradient-to-r from-rose-400 to-pink-400'}`}
+                      style={{ width: `${(item.count / maxCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className={`text-sm font-medium w-16 text-right shrink-0 ${isSelected ? 'text-rose-600' : 'text-gray-600'}`}>
+                    {item.count}
+                  </span>
+                  <span className="text-xs text-gray-400 w-14 text-right shrink-0">
+                    {(item.pct * 100).toFixed(1)}%
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 选中地区的笔记 */}
+      {selectedLoc && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-1">
+            {selectedLoc === '未知IP' ? '无IP记录' : selectedLoc} 创作者笔记
+          </h3>
+          <p className="text-xs text-gray-400 mb-4">{selectedRecords.length} 篇</p>
+          {selectedRecords.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">暂无数据</p>
+          ) : (
+            <div className="space-y-2 max-h-[320px] overflow-y-auto">
+              {selectedRecords.slice(0, 20).map(r => (
+                <div key={r.note_id} className="p-3 bg-gray-50 rounded-xl">
+                  <div className="text-sm font-medium text-gray-700 line-clamp-1">{r.title || r.content?.slice(0, 60)}</div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                    <span>❤️ {formatNumber(r.liked_count || 0)}</span>
+                    <span>⭐ {formatNumber(r.collected_count || 0)}</span>
+                    <span className="text-rose-400">{r.macro_topic}</span>
+                    {selectedLoc === '未知IP' && (
+                      <span className="ml-auto italic text-gray-400">无IP</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 地理 + 主题交叉分析（排除未知IP） */}
+      {hasIPRecords.length >= 2 && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-gray-700 mb-4">地区 × 主题 交叉分析</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="text-left p-2 text-gray-500 font-medium">地区</th>
+                  <th className="text-center p-2 text-gray-500 font-medium">笔记数</th>
+                  {topics.slice(0, 4).map(t => (                    <th key={t.id} className="text-center p-2 text-gray-500 font-medium text-xs">{t.name.slice(0, 6)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {hasIPRecords.slice(0, 10).map(item => {
+                  const locRecords = records.filter(r => r.ip_location === item.location)
+                  const locTopics = new Map<string, number>()
+                  for (const r of locRecords) locTopics.set(r.macro_topic, (locTopics.get(r.macro_topic) || 0) + 1)
+                  return (
+                    <tr key={item.location} className="border-t border-gray-50 hover:bg-rose-50/30">
+                      <td className="p-2 font-medium text-gray-700">{item.location}</td>
+                      <td className="p-2 text-center text-gray-600">{item.count}</td>
+                      {topics.slice(0, 4).map(t => {
+                        const cnt = locTopics.get(t.name) || 0
+                        const rate = locRecords.length ? cnt / locRecords.length : 0
+                        return (
+                          <td key={t.id} className="p-2 text-center">
+                            {cnt > 0 ? (
+                              <span className="text-rose-500 font-medium">{cnt}</span>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                            <div className="text-xs text-gray-400">{rate > 0 ? `${(rate * 100).toFixed(0)}%` : ''}</div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── 笔记详情弹窗 ───

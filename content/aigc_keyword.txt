@@ -33,8 +33,8 @@ UNet
 CLIP模型
 
 # ==================== AI工具类 ====================
-ChatGPT
-Claude
+ChatGPT pro
+Claude pro
 Midjourney
 Stable_Diffusion
 SDXL
@@ -44,6 +44,7 @@ Diffusion
 讯飞星火
 智谱清言
 Gemini
+Gemini pro
 Bard
 NewBing
 BingChat
@@ -51,6 +52,13 @@ Copilot
 NotionAI
 Perplexity
 Character_AI
+openclaw
+Qwen
+Leonardo.Ai
+Dreamina
+GPT-o4
+Cursor
+Sora
 
 # ==================== AI生成类 ====================
 AI生成

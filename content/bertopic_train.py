@@ -7,6 +7,7 @@ import torch
 from pathlib import Path
 from datetime import datetime
 import logging
+import time
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -32,62 +33,79 @@ MODEL_DIR = OUTPUT_DIR / "saved_model"
 LOG_DIR = WORK_DIR / "logs"
 
 INPUT_FILE = DATA_DIR / "bertopic_train_data.csv"
-RANDOM_STATE = 42
+RANDOM_STATE = 13
+TARGET_MICRO_TOPICS_MAX = 30
 
-# ==================== 【优化1】调整目标主题数 ====================
-# 原来固定35个，改为一个合理范围，让模型有更大的发散-收敛空间
-TARGET_MICRO_TOPICS_MIN = 25   # 最少保留的主题数
-TARGET_MICRO_TOPICS_MAX = 50   # 最多允许的主题数
-
-# ==================== 【优化2】扩充宏观锚点与种子词 ====================
+# ==================== 扩充宏观锚点与种子词 ====================
 MACRO_ANCHORS = {
     "AI内容创作": {
         "definition": "核心词：绘画 插画 视频 建模 设计 生成 创作 写小说 网文 写作 音乐 短剧 脚本 IP 形象 Midjourney Stable Diffusion SD MJ ComfyUI 工作流 LoRA ControlNet。场景定义：利用人工智能生成图像、视频、音频、三维模型或文学作品的直接创作过程与作品展示。",
-        "keywords": ["绘画", "插画", "视频", "建模", "生成", "创作", "小说", "网文",
-                     "写作", "音乐", "短剧", "脚本", "Midjourney", "SD", "ComfyUI",
-                     "工作流", "LoRA", "ControlNet", "出图", "生图", "画风", "IP",
-                     "形象设计", "头像", "壁纸", "表情包", "动漫", "二次元", "摄影",
-                     "修图", "海报", "Logo", "排版", "UI设计", "三维", "C4D", "Blender"]
+        "keywords": list(dict.fromkeys([
+            "绘画", "插画", "视频", "建模", "生成", "创作", "小说", "网文",
+            "写作", "音乐", "短剧", "脚本", "Midjourney", "SD", "ComfyUI",
+            "工作流", "LoRA", "ControlNet", "出图", "生图", "画风", "IP",
+            "形象设计", "头像", "壁纸", "表情包", "动漫", "二次元", "摄影",
+            "修图", "海报", "Logo", "排版", "UI设计", "三维", "C4D", "Blender"
+        ]))
     },
     "AI应用与测评": {
-        "definition": "核心词：测评 推荐 对比 红黑榜 体验 智能体 机器人 星野 猫箱 APP 硬件 大模型 GPT Claude Kimi 通义 文心 DeepSeek。场景定义：对具体的AI软件、应用、平台、硬件设备或虚拟角色伴侣进行功能测试、优缺点评价与盘点。",
-        "keywords": ["测评", "推荐", "对比", "体验", "智能体", "星野", "猫箱", "APP",
-                     "硬件", "大模型", "GPT", "Claude", "Kimi", "通义", "文心", "DeepSeek",
-                     "红黑榜", "避雷", "安利", "好用", "不好用", "功能", "更新", "版本",
-                     "插件", "工具", "平台", "网站", "API", "免费", "付费", "会员",
-                     "豆包", "天工", "讯飞", "百川", "智谱", "GLM", "Gemini", "Copilot"]
+        "definition": "核心词：测评 推荐 对比 红黑榜 体验 智能体 机器人 星野 猫箱 APP 硬件 大模型 GPT Claude Kimi 通义 文心 DeepSeek 即梦 造点 liblib。场景定义：对具体的AI软件、应用、平台、硬件设备或虚拟角色伴侣进行功能测试、优缺点评价与盘点。",
+        "keywords": list(dict.fromkeys([
+            "测评", "推荐", "对比", "体验", "智能体", "星野", "猫箱", "APP",
+            "Cursor", "大模型", "GPT", "Claude", "Kimi", "通义", "文心", "DeepSeek",
+            "红黑榜", "避雷", "安利", "好用", "不好用", "功能", "更新", "版本",
+            "插件", "工具", "平台", "网站", "API", "免费", "付费", "会员",
+            "豆包", "天工", "讯飞", "百川", "智谱", "GLM", "Gemini", "Copilot",
+            "即梦", "造点", "liblib", "nanobanana pro", "软件"
+        ]))
     },
     "AI学习教程": {
         "definition": "核心词：教程 学习 入门 提示词 指令 课程 培训 指南 考证 技巧 零基础 prompt 咒语 话术。场景定义：教授用户如何使用AI工具的实操指南、指令词编写方法、学习路线与教育培训内容。",
-        "keywords": ["教程", "学习", "入门", "提示词", "指令", "课程", "培训", "指南",
-                     "考证", "技巧", "零基础", "prompt", "咒语", "话术", "怎么用",
-                     "手把手", "保姆级", "详细", "步骤", "方法", "学会", "小白",
-                     "新手", "进阶", "精通", "实操", "练习", "模板", "框架",
-                     "公式", "结构", "万能", "高效", "准确", "精准", "提问", "对话"]
+        "keywords": list(dict.fromkeys([
+            "教程", "学习", "入门", "提示词", "指令", "课程", "培训", "指南",
+            "考证", "技巧", "零基础", "prompt", "咒语", "话术", "怎么用",
+            "手把手", "保姆级", "详细", "步骤", "方法", "学会", "小白",
+            "新手", "进阶", "精通", "实操", "练习", "模板", "框架",
+            "公式", "结构", "万能", "高效", "准确", "精准", "提问", "对话"
+        ]))
     },
     "AI赋能工作生活": {
         "definition": "核心词：效率 办公 搞钱 副业 变现 论文 翻译 简历 英语 口语 旅游 算命 求职 PPT Excel 数据分析。场景定义：将AI作为辅助工具解决工作效率提升、学术研究、赚钱变现或日常生活具体场景的问题。",
-        "keywords": ["效率", "办公", "副业", "变现", "论文", "翻译", "简历", "英语",
-                     "口语", "旅游", "算命", "求职", "PPT", "Excel", "数据分析",
-                     "赚钱", "搞钱", "收入", "月入", "兼职", "自由职业", "自媒体",
-                     "运营", "文案", "营销", "客服", "自动化", "流程", "提效",
-                     "汇报", "周报", "总结", "邮件", "合同", "法律", "财务",
-                     "代码", "编程", "开发", "debug", "程序", "Python", "爬虫"]
+        "keywords": list(dict.fromkeys([
+            "效率", "办公", "副业", "变现", "论文", "翻译", "简历", "英语",
+            "口语", "旅游", "算命", "求职", "PPT", "Excel", "数据分析",
+            "赚钱", "搞钱", "收入", "月入", "兼职", "自由职业", "自媒体",
+            "运营", "文案", "营销", "客服", "自动化", "流程", "提效",
+            "汇报", "周报", "总结", "邮件", "合同", "法律", "财务",
+            "代码", "编程", "开发", "debug", "程序", "Python", "爬虫"
+        ]))
     },
     "AI社会反思": {
-        "definition": "核心词：失业 焦虑 取代 版权 侵权 法律 伦理 诈骗 深度伪造 威胁 监管 维权 画师 设计师 失业潮。场景定义：反思AI带来的负面影响，包括画师维权、人类职业被取代的恐慌、数据隐私与科技伦理争议。",
-        "keywords": ["失业", "焦虑", "取代", "版权", "侵权", "法律", "伦理", "诈骗",
-                     "深度伪造", "威胁", "监管", "维权", "画师", "设计师", "失业潮",
-                     "恐慌", "担忧", "争议", "抵制", "反对", "禁止", "限制",
-                     "隐私", "数据安全", "泄露", "歧视", "偏见", "公平", "透明",
-                     "AI画图", "AI写作", "抄袭", "剽窃", "原创", "知识产权",
-                     "人类", "机器", "未来", "趋势", "影响", "冲击", "变革"]
+        "definition": "核心词：失业 版权 伦理 诈骗 深度伪造 维权 数字鸿沟 学术造假 数据投毒 能源消耗 失控。场景定义：反思AI带来的负面与深层影响，包括职业取代恐慌、版权隐私争议、深度伪造造谣、教育作弊与思考能力退化、数字鸿沟与资本垄断，以及AI算力带来的能源环境危机。",
+        "keywords": list(dict.fromkeys([
+            "失业", "焦虑", "取代", "版权", "侵权", "维权", "画师", "裁员", "抄袭", "原创",
+            "法律", "伦理", "知识产权", "人类", "职业", "失业潮",
+            "诈骗", "欺骗", "深度伪造", "造谣", "黄谣", "换脸", "虚假信息", "伪造",
+            "作弊", "代写", "学术造假", "思考能力", "退化", "独立思考", "洗稿",
+            "沉迷", "异化", "情感剥削", "丧失人性", "信息茧房", "偏见", "歧视",
+            "数字鸿沟", "垄断", "巨头", "贫富差距", "资本", "不公平", "透明",
+            "隐私", "数据安全", "投毒", "模型崩塌", "数据污染", "未经授权",
+            "耗电", "能源", "环境", "碳排放", "失控", "觉醒", "硅基生物", "威胁"
+        ]))
     }
 }
 MACRO_TOPIC_NAMES = list(MACRO_ANCHORS.keys())
+SEED_WORDS = [anchor["keywords"][:60] for anchor in MACRO_ANCHORS.values()]
 
-# 【优化2】从扩充后的关键词中提取种子词，每个类别取前20个
-SEED_WORDS = [anchor["keywords"][:20] for anchor in MACRO_ANCHORS.values()]
+KEYWORD_TO_MACROS = {}
+for macro, anchor in MACRO_ANCHORS.items():
+    seen = set()
+    for idx, kw in enumerate(anchor["keywords"]):
+        if kw in seen: continue
+        seen.add(kw)
+        weight = 3.0 if idx < 15 else (2.0 if idx < 35 else 1.5)
+        if kw not in KEYWORD_TO_MACROS: KEYWORD_TO_MACROS[kw] = {}
+        KEYWORD_TO_MACROS[kw][macro] = weight
 
 # ==================== 日志初始化 ====================
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -101,166 +119,67 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# ==================== 【优化3】数据加载增强 ====================
+# ==================== 数据加载 ====================
 def load_data(file_path: Path):
     logger.info(f"📂 正在加载数据: {file_path}")
     df = pd.read_csv(file_path).dropna(subset=["cleaned_full_text", "cleaned_seg_text"])
     df = df[df["cleaned_seg_text"].str.strip() != ""]
     df = df[df["cleaned_full_text"].str.strip() != ""]
 
-    # 【新增】数据质量检查
-    logger.info(f"📊 有效数据量: {len(df)} 条")
-    avg_len = df["cleaned_full_text"].str.len().mean()
-    logger.info(f"📊 平均文本长度: {avg_len:.0f} 字符")
-
-    # 【新增】过滤过短文本（<10字符的文本无法提供有效语义）
-    short_mask = df["cleaned_full_text"].str.len() < 10
+    logger.info(f"📊 原始有效数据量: {len(df)} 条")
+    short_mask = df["cleaned_full_text"].str.len() < 5
     if short_mask.sum() > 0:
-        logger.warning(f"⚠️ 发现 {short_mask.sum()} 条过短文本（<10字符），将被过滤")
+        logger.warning(f"⚠️ 过滤 {short_mask.sum()} 条过短文本（<5字符）")
         df = df[~short_mask]
+
+    if len(df) == 0:
+        logger.error("❌ 过滤后无有效数据，程序终止")
+        sys.exit(1)
 
     return df["note_id"].tolist(), df["cleaned_full_text"].tolist(), df["cleaned_seg_text"].tolist()
 
+def space_tokenizer(text):
+    return text.split() if isinstance(text, str) else[]
 
-# ==================== 【优化4】初始化流水线（调整参数） ====================
-def initialize_pipeline():
-    logger.info("🔧 初始化优化版 BERTopic 流水线...")
-
-    # 1. 文本向量化
+# ==================== 初始化流水线 (已优化防膨胀) ====================
+def initialize_pipeline(data_size):
+    logger.info("🔧 初始化 BERTopic 流水线...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"🤖 正在加载 BAAI/bge-large-zh-v1.5 模型，使用设备: {device}")
+    logger.info(f"🤖 使用设备: {device}")
+
     embedding_model = SentenceTransformer("BAAI/bge-large-zh-v1.5", device=device)
     embedding_model.max_seq_length = 512
 
-    # 2. UMAP降维：【优化】增大n_neighbors以保留全局结构
-    #    原来: n_neighbors=15, n_components=15
-    #    优化: n_neighbors=30（更关注全局），n_components=10（更紧凑）
-    umap_model = UMAP(
-        n_neighbors=30,        # 【修改】从15→30，更好地保留全局拓扑
-        n_components=10,       # 【修改】从15→10，进一步压缩，突出主结构
-        min_dist=0.0,
-        metric='cosine',
-        random_state=RANDOM_STATE
-    )
+    umap_model = UMAP(n_neighbors=30, n_components=15, min_dist=0.1, metric='cosine', random_state=RANDOM_STATE)
+    
+    dynamic_min_cluster = max(25, int((data_size / TARGET_MICRO_TOPICS_MAX) * 0.25))
+    logger.info(f"📐 动态设定 HDBSCAN 最小聚类体积: {dynamic_min_cluster}")
 
-    # 3. HDBSCAN：【优化】大幅放宽聚类条件
-    #    原来: min_cluster_size=30, min_samples=10
-    #    优化: min_cluster_size=15, min_samples=5
+    # 【降噪调整1】降低孤立点门槛 (从 //4 降到 //5)，使得稍微稀疏的数据也能成团而不是直接变噪声
+    min_samples_val = max(5, dynamic_min_cluster // 5) 
+    
     hdbscan_model = HDBSCAN(
-        min_cluster_size=15,   # 【修改】从30→15，允许更小的主题存在
-        min_samples=5,         # 【修改】从10→5，降低核心点门槛，让更多点被归入簇
-        metric='euclidean',
-        cluster_selection_method='eom',
-        prediction_data=True,
-        # 【新增】启用软聚类，为后续离群点回收提供概率信息
+        min_cluster_size=dynamic_min_cluster,
+        min_samples=min_samples_val, 
+        metric='euclidean', 
+        cluster_selection_method='eom', 
+        prediction_data=True, 
         core_dist_n_jobs=-1
     )
-
-    # 4. 词频与TF-IDF
-    vectorizer_model = CountVectorizer(
-        min_df=3,              # 【修改】从5→3，允许更低频但有意义的词出现
-        max_df=0.92,           # 【修改】从0.90→0.92，略微放宽上限
-        ngram_range=(1, 2)
-    )
-    ctfidf_model = ClassTfidfTransformer(
-        bm25_weighting=True,
-        reduce_frequent_words=True
-    )
+    
+    vectorizer_model = CountVectorizer(tokenizer=space_tokenizer, min_df=3, max_df=0.90, ngram_range=(1, 2))
+    ctfidf_model = ClassTfidfTransformer(bm25_weighting=True, reduce_frequent_words=True)
 
     return embedding_model, umap_model, hdbscan_model, vectorizer_model, ctfidf_model
 
-
-# ==================== 【优化5】训练与多策略优化 ====================
-def train_and_optimize(full_texts, seg_texts, pipeline_models):
-    emb_mdl, umap_mdl, hdb_mdl, vec_mdl, ctfidf_mdl = pipeline_models
-
-    # ================================================================
-    # 阶段1：引导式BERTopic聚类
-    # ================================================================
-    logger.info("🚀 阶段1：开始执行 Guided BERTopic (先验引导聚类)...")
-
-    topic_model = BERTopic(
-        embedding_model=emb_mdl,
-        umap_model=umap_mdl,
-        hdbscan_model=hdb_mdl,
-        vectorizer_model=vec_mdl,
-        ctfidf_model=ctfidf_mdl,
-        seed_topic_list=SEED_WORDS,
-        nr_topics=TARGET_MICRO_TOPICS_MAX,  # 先设上限，后续自动收敛
-        verbose=True,
-        # 【新增】计算文档嵌入概率，为后续回收提供依据
-        calculate_probabilities=True
-    )
-
-    topics, probs = topic_model.fit_transform(full_texts)
-
-    noise_count_initial = topics.count(-1)
-    total_count = len(topics)
-    noise_ratio = noise_count_initial / total_count * 100
-    logger.info(f"📊 初始聚类完成！噪声数据: {noise_count_initial} 条 ({noise_ratio:.1f}%)")
-    logger.info(f"📊 发现有效主题数: {len(set(topics)) - (1 if -1 in topics else 0)} 个")
-
-    # ================================================================
-    # 阶段2：【核心优化】多策略联合回收离群点
-    # ================================================================
-    logger.info("🔄 阶段2：执行多策略离群点回收...")
-
-    if noise_count_initial > 0:
-        # 策略A：基于文档嵌入相似度回收
-        #    原理：将噪声文档的向量与各主题代表文档的向量比较，分配到最相似的主题
-        logger.info("   → 策略A: 基于嵌入向量相似度回收...")
-        topics_after_embed = topic_model.reduce_outliers(
-            full_texts, topics,
-            strategy="embeddings",
-            threshold=0.5  # 相似度阈值，低于此值不强行分配
-        )
-
-        # 策略B：基于c-TF-IDF分布回收（对剩余噪声）
-        #    原理：看噪声文档的词频分布更接近哪个主题的词频分布
-        logger.info("   → 策略B: 基于c-TF-IDF分布回收...")
-        topics_after_ctfidf = topic_model.reduce_outliers(
-            full_texts, topics_after_embed,
-            strategy="c-tf-idf",
-            threshold=0.3
-        )
-
-        # 策略C：基于概率分布回收（最后兜底）
-        #    原理：利用HDBSCAN的软聚类概率，将噪声分配到概率最高的主题
-        logger.info("   → 策略C: 基于概率分布兜底回收...")
-        topics_final = topic_model.reduce_outliers(
-            full_texts, topics_after_ctfidf,
-            strategy="distributions",
-            threshold=0.1  # 概率阈值设低一些，尽量回收
-        )
-
-        # 更新主题分配
-        topic_model.update_topics(full_texts, topics=topics_final)
-        topics = topics_final
-
-        noise_count_final = topics.count(-1)
-        noise_ratio_final = noise_count_final / total_count * 100
-        recovered = noise_count_initial - noise_count_final
-        logger.info(f"✅ 离群点回收完成！回收 {recovered} 条，剩余噪声: {noise_count_final} 条 ({noise_ratio_final:.1f}%)")
-    else:
-        logger.info("✅ 初始聚类无噪声数据，跳过回收步骤")
-
-    # ================================================================
-    # 阶段3：微观→宏观语义映射（增强版）
-    # ================================================================
-    logger.info("🎯 阶段3：基于【关键词+真实语境】执行高精度语义映射...")
-
-    # 获取5大宏观锚点的向量（使用definition字段，信息更丰富）
+# ==================== 计算映射与置信度 ====================
+def compute_mappings(topic_model, emb_mdl):
+    mapping_dict = {}
+    confidence_dict = {}
+    topic_info = topic_model.get_topic_info()
+    
     macro_descriptions = [anchor["definition"] for anchor in MACRO_ANCHORS.values()]
     macro_embeddings = emb_mdl.encode(macro_descriptions, normalize_embeddings=True)
-
-    # 【优化】同时使用关键词向量作为辅助判断
-    macro_keyword_texts = [" ".join(anchor["keywords"]) for anchor in MACRO_ANCHORS.values()]
-    macro_kw_embeddings = emb_mdl.encode(macro_keyword_texts, normalize_embeddings=True)
-
-    mapping_dict = {}
-    confidence_dict = {}  # 【新增】记录每个微观主题的映射置信度
-    topic_info = topic_model.get_topic_info()
 
     for topic_id in topic_info["Topic"]:
         if topic_id == -1:
@@ -268,230 +187,268 @@ def train_and_optimize(full_texts, seg_texts, pipeline_models):
             confidence_dict[topic_id] = 0.0
             continue
 
-        # 提取微观主题的Top20核心词
-        top_words = " ".join([word for word, weight in topic_model.get_topic(topic_id)[:20]])
+        topic_words = topic_model.get_topic(topic_id)
+        if not topic_words:
+            mapping_dict[topic_id] = "噪声数据(Outliers)"
+            confidence_dict[topic_id] = 0.0
+            continue
 
-        # 提取微观主题最具代表性的3篇原味笔记
+        topic_keywords = [w[0] for w in topic_words[:30]]
+        topic_weights =[w[1] for w in topic_words[:30]]
+
+        # Layer 1: 关键词加权
+        macro_weighted_scores = {macro: 0.0 for macro in MACRO_TOPIC_NAMES}
+        total_keyword_weight = 0.0
+
+        for kw, tfidf_weight in zip(topic_keywords[:15], topic_weights[:15]):
+            if kw in KEYWORD_TO_MACROS:
+                for macro, kw_importance in KEYWORD_TO_MACROS[kw].items():
+                    score = tfidf_weight * kw_importance
+                    macro_weighted_scores[macro] += score
+                    total_keyword_weight += score
+
+        if total_keyword_weight > 0:
+            for macro in macro_weighted_scores:
+                macro_weighted_scores[macro] /= total_keyword_weight
+        else:
+            for macro in macro_weighted_scores:
+                macro_weighted_scores[macro] = 1.0 / len(MACRO_TOPIC_NAMES)
+
+        # Layer 2: 语义相似度匹配
         rep_docs = topic_model.get_representative_docs(topic_id)
-        if not rep_docs:
-            rep_docs = [""]
+        rep_docs = rep_docs if isinstance(rep_docs, list) else[]
+        top_words_str = " ".join(topic_keywords[:15])
+        docs_str = " ".join(rep_docs)[:300]
+        micro_anchor = f"主题关键词：{top_words_str}。内容摘要：{docs_str}"
 
-        # 组合成微观锚点句
-        micro_anchor = f"核心词：{top_words}。场景内容：{' '.join(rep_docs)[:400]}"
-        micro_vector = emb_mdl.encode([micro_anchor], normalize_embeddings=True)
+        if not micro_anchor.strip():
+            semantic_scores = {macro: 0.0 for macro in MACRO_TOPIC_NAMES}
+        else:
+            micro_vector = emb_mdl.encode([micro_anchor], normalize_embeddings=True)
+            semantic_sims = cosine_similarity(micro_vector, macro_embeddings)[0]
+            semantic_scores = {macro: max(0.0, float(s)) for macro, s in zip(MACRO_TOPIC_NAMES, semantic_sims)}
 
-        # 【优化】双重相似度计算：语义相似度 + 关键词相似度
-        semantic_sims = cosine_similarity(micro_vector, macro_embeddings)[0]
-        keyword_sims = cosine_similarity(micro_vector, macro_kw_embeddings)[0]
+        # Layer 3: 融合计算 
+        combined_scores = {}
+        for macro in MACRO_TOPIC_NAMES:
+            combined_scores[macro] = (semantic_scores[macro] * 0.6 + macro_weighted_scores[macro] * 0.4)
 
-        # 加权融合：语义权重0.6，关键词权重0.4
-        combined_sims = 0.6 * semantic_sims + 0.4 * keyword_sims
+        best_macro = max(combined_scores, key=combined_scores.get)
+        best_score = combined_scores[best_macro]
+        sorted_scores = sorted(combined_scores.values(), reverse=True)
 
-        best_macro_idx = np.argmax(combined_sims)
-        best_confidence = combined_sims[best_macro_idx]
+        final_confidence = min(best_score * (1.0 + (sorted_scores[0] - sorted_scores[1])), 1.0) if len(sorted_scores) > 1 else best_score
+        mapping_dict[topic_id] = best_macro
+        confidence_dict[topic_id] = round(final_confidence, 4)
 
-        mapping_dict[topic_id] = MACRO_TOPIC_NAMES[best_macro_idx]
-        confidence_dict[topic_id] = float(best_confidence)
+    return mapping_dict, confidence_dict
 
-    # 【优化】低置信度主题的二次检查
-    low_conf_topics = [tid for tid, conf in confidence_dict.items()
-                       if tid != -1 and conf < 0.35]
-    if low_conf_topics:
-        logger.warning(f"⚠️ 发现 {len(low_conf_topics)} 个低置信度主题（<0.35），可能需要人工审查")
-        for tid in low_conf_topics:
-            logger.warning(f"   主题 {tid} -> {mapping_dict[tid]} (置信度: {confidence_dict[tid]:.3f})")
+# ==================== 训练与优化 ====================
+def train_and_optimize(full_texts, seg_texts, pipeline_models):
+    start_time = time.time()
+    emb_mdl, umap_mdl, hdb_mdl, vec_mdl, ctfidf_mdl = pipeline_models
 
+    logger.info("🚀 阶段0：预计算文档完整语义 Embedding...")
+    embeddings = emb_mdl.encode(full_texts, show_progress_bar=True, batch_size=32)
+
+    logger.info("🚀 阶段1：开始执行 Guided BERTopic 聚类...")
+    topic_model = BERTopic(
+        embedding_model=emb_mdl,
+        umap_model=umap_mdl,
+        hdbscan_model=hdb_mdl,
+        vectorizer_model=vec_mdl,
+        ctfidf_model=ctfidf_mdl,
+        seed_topic_list=SEED_WORDS,
+        verbose=True,
+        calculate_probabilities=False
+    )
+
+    topics, _ = topic_model.fit_transform(seg_texts, embeddings=embeddings)
+    initial_topic_count = len(set(topics)) - (1 if -1 in topics else 0)
+    logger.info(f"📊 初始主题数: {initial_topic_count} 个")
+
+    if initial_topic_count > TARGET_MICRO_TOPICS_MAX:
+        logger.info(f"🔄 阶段2.1：微调合并控制主题数不超过 {TARGET_MICRO_TOPICS_MAX}...")
+        topic_model.reduce_topics(seg_texts, nr_topics=TARGET_MICRO_TOPICS_MAX)
+        topics = topic_model.topics_
+
+    # 【降噪调整2】适度放宽离群点回收门槛 (0.75 -> 0.55)，大幅度挽回有效数据
+    logger.info("🔄 阶段2.2：执行离群点归队回收（适中阈值: 0.55）...")
+    topics_recovered = topic_model.reduce_outliers(seg_texts, topics, strategy="embeddings", embeddings=embeddings, threshold=0.55)
+    topic_model.update_topics(seg_texts, topics=topics_recovered)
+    topics = topic_model.topics_
+
+    mapping_dict, confidence_dict = compute_mappings(topic_model, emb_mdl)
+
+    logger.info("🎯 阶段3：执行低置信度主题处理...")
+    macro_topics = {}
+    for tid, macro in mapping_dict.items():
+        if tid != -1 and confidence_dict[tid] >= 0.5:
+            macro_topics.setdefault(macro,[]).append(tid)
+
+    merge_groups = {}
+    for tid, conf in list(confidence_dict.items()):
+        if tid == -1: continue
+
+        # 【降噪调整3】降低弱主题直接死刑的门槛 (0.35 -> 0.30)
+        if conf < 0.30:
+            mapping_dict[tid] = "噪声数据(Outliers)"
+            continue
+
+        if 0.30 <= conf < 0.5:
+            current_macro = mapping_dict[tid]
+            sibling_topics = macro_topics.get(current_macro,[])
+            if not sibling_topics: continue
+
+            tid_words = topic_model.get_topic(tid)
+            if not tid_words: continue
+
+            tid_vector = emb_mdl.encode([" ".join([w[0] for w in tid_words[:10]])], normalize_embeddings=True)
+            best_sibling, best_sim = None, 0
+
+            for sib_tid in sibling_topics:
+                sib_words = topic_model.get_topic(sib_tid)
+                if not sib_words: continue
+                sib_vector = emb_mdl.encode([" ".join([w[0] for w in sib_words[:10]])], normalize_embeddings=True)
+                sim = cosine_similarity(tid_vector, sib_vector)[0][0]
+                if sim > best_sim:
+                    best_sim, best_sibling = sim, sib_tid
+
+            # 【降噪调整4】放宽合并门槛 (0.70 -> 0.65)，鼓励弱主题被同类吸收而非变噪声
+            if best_sibling is not None and best_sim > 0.65:
+                merge_groups.setdefault(best_sibling,[]).append(tid)
+                logger.info(f"   🔗 计划合并弱主题 T{tid} -> T{best_sibling} (相似度: {best_sim:.3f})")
+            else:
+                mapping_dict[tid] = "噪声数据(Outliers)" 
+
+    topics_to_merge = [[target] + sources for target, sources in merge_groups.items()]
+
+    if topics_to_merge:
+        logger.info(f"   执行最终合并，共涉及 {len(topics_to_merge)} 组聚类操作...")
+        topic_model.merge_topics(seg_texts, topics_to_merge)
+        topics = topic_model.topics_
+        mapping_dict, confidence_dict = compute_mappings(topic_model, emb_mdl)
+
+        for tid, conf in confidence_dict.items():
+            if tid != -1 and conf < 0.30:
+                mapping_dict[tid] = "噪声数据(Outliers)"
+
+    logger.info(f"📊 训练完成，总耗时: {time.time() - start_time:.2f}秒")
     return topic_model, topics, mapping_dict, confidence_dict
 
+# ==================== 结果评估与保存 ====================
+def evaluate_clustering(topics, mapping_dict, confidence_dict):
+    logger.info("📈 正在评估聚类质量...")
+    total = len(topics)
+    noise_count = sum(1 for t in topics if t == -1 or mapping_dict.get(t) == "噪声数据(Outliers)")
 
-# ==================== 【优化6】结果保存（增强版） ====================
+    print("\n" + "=" * 60)
+    print("  聚类质量评估报告")
+    print("=" * 60)
+    print(f"  📊 有效数据覆盖率: {(total - noise_count) / total * 100:.1f}% ({total - noise_count}/{total})")
+
+    valid_topics =[t for t in topics if t != -1 and mapping_dict.get(t) != "噪声数据(Outliers)"]
+    if valid_topics:
+        topic_counts = pd.Series(valid_topics).value_counts()
+        print(f"  📊 分布健康度监控:")
+        print(f"     最大主题占比: {topic_counts.max() / len(valid_topics) * 100:.1f}% (建议<40%)")
+        print(f"     最小主题包含数: {topic_counts.min()} 条")
+
+    for macro in MACRO_TOPIC_NAMES:
+        belonging =[tid for tid, m in mapping_dict.items() if m == macro and tid != -1]
+        total_in_macro = sum(topics.count(tid) for tid in belonging)
+        avg_conf = np.mean([confidence_dict.get(tid, 0.0) for tid in belonging]) if belonging else 0
+        print(f"  📌 {macro}: {len(belonging)}个子主题, 共 {total_in_macro}条, 平均置信度:{avg_conf:.3f}")
+
+    valid_confidences =[
+        confidence_dict[tid] for tid in confidence_dict 
+        if tid != -1 and mapping_dict.get(tid) != "噪声数据(Outliers)"
+    ]
+    
+    if valid_confidences:
+        avg_confidence = np.mean(valid_confidences)
+        high_conf = sum(1 for c in valid_confidences if c >= 0.7)
+        medium_conf = sum(1 for c in valid_confidences if 0.5 <= c < 0.7)
+        low_conf = sum(1 for c in valid_confidences if c < 0.5)
+
+        print(f"\n  📊 有效分类置信度分布 (不含噪声):")
+        print(f"     平均置信度: {avg_confidence:.3f}")
+        print(f"     高置信(≥0.7): {high_conf}个 ({high_conf/len(valid_confidences)*100:.1f}%)")
+        print(f"     中置信(0.5-0.7): {medium_conf}个 ({medium_conf/len(valid_confidences)*100:.1f}%)")
+        print(f"     低置信(<0.5): {low_conf}个 ({low_conf/len(valid_confidences)*100:.1f}%)")
+    print("=" * 60 + "\n")
+
 def save_results(topic_model, topics, note_ids, full_texts, seg_texts, mapping_dict, confidence_dict):
-    logger.info("💾 阶段4：正在保存结果与本地微调模型...")
+    logger.info("💾 阶段5：正在保存完整结果...")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. 保存模型
     try:
         topic_model.save(str(MODEL_DIR), serialization="safetensors", save_ctfidf=True)
-        logger.info(f"🏆 模型已保存至：{MODEL_DIR}")
     except Exception as e:
         logger.error(f"❌ 模型保存失败: {e}")
 
-    # 2. 提取微观主题关键词
-    micro_keywords = {}
-    micro_top_words_full = {}
-    for tid in mapping_dict.keys():
-        if tid == -1:
-            micro_keywords[tid] = "无明确语义"
-            micro_top_words_full[tid] = ""
+    micro_keywords, micro_rep_docs = {}, {}
+    for tid in set(topics):
+        if tid == -1 or mapping_dict.get(tid) == "噪声数据(Outliers)":
+            micro_keywords[tid], micro_rep_docs[tid] = "无明确语义",[]
         else:
-            topic_words = topic_model.get_topic(tid)
-            micro_keywords[tid] = ", ".join([w[0] for w in topic_words[:8]])
-            micro_top_words_full[tid] = ", ".join([w[0] for w in topic_words[:20]])
+            words = topic_model.get_topic(tid)
+            micro_keywords[tid] = ", ".join([w[0] for w in words[:15]]) if words else ""
+            rep_docs = topic_model.get_representative_docs(tid)
+            micro_rep_docs[tid] = rep_docs if isinstance(rep_docs, list) else[]
 
-    # 3. 【优化】输出更丰富的分类结果CSV
     df_result = pd.DataFrame({
         "note_id": note_ids,
         "content": full_texts,
-        "segmented_text": seg_texts,  # 【新增】同时保留分词文本
+        "segmented_text": seg_texts,
         "micro_topic_id": topics,
-        "micro_topic_keywords": [micro_keywords[t] for t in topics],
-        "micro_topic_full_keywords": [micro_top_words_full[t] for t in topics],
-        "macro_topic_name": [mapping_dict[t] for t in topics],
-        "mapping_confidence": [confidence_dict.get(t, 0.0) for t in topics]
+        "micro_topic_keywords":[micro_keywords.get(t, "") for t in topics],
+        "macro_topic_name":[mapping_dict.get(t, "未知") for t in topics],
+        "mapping_confidence":[confidence_dict.get(t, 0.0) for t in topics],
+        "is_noise":[(t == -1 or mapping_dict.get(t) == "噪声数据(Outliers)") for t in topics]
     })
+    df_result.to_csv(OUTPUT_DIR / "final_pro_topics.csv", index=False, encoding="utf-8-sig")
 
-    output_csv = OUTPUT_DIR / "final_pro_topics.csv"
-    df_result.to_csv(output_csv, index=False, encoding="utf-8-sig")
-    logger.info(f"📄 分类结果CSV已保存至：{output_csv}")
-
-    # 4. 【优化】生成详细的层级审查报告
     report_file = OUTPUT_DIR / "pro_mapping_report.txt"
     with open(report_file, "w", encoding="utf-8") as f:
-        f.write("=" * 70 + "\n")
-        f.write("  AIGC 小红书笔记 (优化版) 聚类映射报告\n")
-        f.write(f"  生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 70 + "\n\n")
+        f.write("=" * 80 + "\n  AIGC 小红书笔记 聚类映射报告\n" + "=" * 80 + "\n\n")
 
-        # 总览统计
         total = len(topics)
-        noise_count = topics.count(-1)
+        noise_count = sum(1 for t in topics if t == -1 or mapping_dict.get(t) == "噪声数据(Outliers)")
         valid_count = total - noise_count
-        unique_micro = len(set(topics)) - (1 if -1 in topics else 0)
-        unique_macro = len(set(mapping_dict.values()) - {"噪声数据(Outliers)"})
+        unique_micro = len([t for t in set(topics) if mapping_dict.get(t) != "噪声数据(Outliers)" and t != -1])
 
         f.write(f"📊 总览统计:\n")
         f.write(f"   总数据量: {total} 条\n")
         f.write(f"   有效分类: {valid_count} 条 ({valid_count/total*100:.1f}%)\n")
-        f.write(f"   噪声数据: {noise_count} 条 ({noise_count/total*100:.1f}%)\n")
-        f.write(f"   微观主题数: {unique_micro} 个\n")
-        f.write(f"   宏观大类数: {unique_macro} 个\n\n")
+        f.write(f"   微观主题数: {unique_micro} 个\n\n")
 
-        # 各宏观大类详情
         for macro in MACRO_TOPIC_NAMES:
-            belonging_micros = [(tid, confidence_dict.get(tid, 0.0)) for tid, m_name in mapping_dict.items()
-                    if m_name == macro and tid != -1]
+            belonging_micros =[(tid, confidence_dict.get(tid, 0.0)) for tid, m_name in mapping_dict.items() if m_name == macro]
             belonging_micros.sort(key=lambda x: topics.count(x[0]), reverse=True)
 
             macro_count = sum(topics.count(tid) for tid, _ in belonging_micros)
-            f.write(f"{'='*60}\n")
-            f.write(f"🌟 宏观大类：【{macro}】 (共 {macro_count} 条, {macro_count/total*100:.1f}%)\n")
-            f.write(f"{'='*60}\n")
+            avg_macro_conf = np.mean([conf for _, conf in belonging_micros]) if belonging_micros else 0
 
+            f.write(f"🌟 宏观大类：【{macro}】 (共 {macro_count} 条, 平均置信度: {avg_macro_conf:.3f})\n{'-'*70}\n")
             for tid, conf in belonging_micros:
-                count = topics.count(tid)
-                f.write(f"   ├─ 子主题 {tid} (频次:{count}, 置信度:{conf:.3f})\n")
-                f.write(f"   │  关键词: {micro_keywords[tid]}\n")
-
-                # 输出该子主题的2篇代表性笔记摘要
-                rep_docs = topic_model.get_representative_docs(tid)
-                for i, doc in enumerate(rep_docs[:2]):
-                    doc_preview = doc[:80].replace('\n', ' ')
-                    f.write(f"   │  样例{i+1}: {doc_preview}...\n")
-                f.write(f"   │\n")
-
-            if not belonging_micros:
-                f.write(f"   (无子主题)\n")
+                f.write(f"   ├─ 子主题 {tid} (频次:{topics.count(tid)}, 置信度:{conf:.3f})\n")
+                f.write(f"   │  关键词: {micro_keywords.get(tid, '')}\n")
             f.write("\n")
-
-        # 噪声数据统计
-        f.write(f"{'='*60}\n")
-        f.write(f"🗑️ 隔离的边缘/无效噪声数据 (Topic -1): {noise_count} 条\n")
-        f.write(f"{'='*60}\n")
-
-        # 低置信度主题提醒
-        low_conf = [(tid, mapping_dict[tid], confidence_dict[tid])
-                    for tid in confidence_dict if tid != -1 and confidence_dict[tid] < 0.35]
-        if low_conf:
-            f.write(f"\n⚠️ 低置信度主题（建议人工审查）:\n")
-            for tid, macro, conf in low_conf:
-                f.write(f"   主题 {tid} -> {macro} (置信度: {conf:.3f})\n")
-
-    logger.info(f"✅ 详细审查报告已保存至：{report_file}")
-
-    # 5. 【新增】输出主题分布统计CSV
-    stats_data = []
-    for macro in MACRO_TOPIC_NAMES:
-        belonging = [tid for tid, m in mapping_dict.items() if m == macro and tid != -1]
-        for tid in belonging:
-            stats_data.append({
-                "macro_topic": macro,
-                "micro_topic_id": tid,
-                "note_count": topics.count(tid),
-                "keywords": micro_keywords[tid],
-                "confidence": confidence_dict.get(tid, 0.0)
-            })
-
-    df_stats = pd.DataFrame(stats_data).sort_values(
-        ["macro_topic", "note_count"], ascending=[True, False]
-    )
-    stats_csv = OUTPUT_DIR / "topic_distribution_stats.csv"
-    df_stats.to_csv(stats_csv, index=False, encoding="utf-8-sig")
-    logger.info(f"📊 主题分布统计已保存至：{stats_csv}")
-
-
-# ==================== 【优化7】新增：聚类质量评估函数 ====================
-def evaluate_clustering(topic_model, topics, mapping_dict, full_texts):
-    """输出聚类质量的量化评估指标"""
-    logger.info("📈 正在评估聚类质量...")
-    total = len(topics)
-    noise_count = topics.count(-1)
-
-    print("\n" + "=" * 50)
-    print("  聚类质量评估报告")
-    print("=" * 50)
-
-    # 1. 覆盖率 = 非噪声数据 / 总数据
-    coverage = (total - noise_count) / total * 100
-    print(f"  📊 数据覆盖率: {coverage:.1f}%")
-    print(f"     (非噪声数据 {total - noise_count} / 总数据 {total})")
-
-    # 2. 主题分布均匀度
-    valid_topics = [t for t in set(topics) if t != -1]
-    if valid_topics:
-        counts = [topics.count(t) for t in valid_topics]
-        max_count = max(counts)
-        min_count = min(counts)
-        avg_count = np.mean(counts)
-        print(f"  📊 主题分布: 最大={max_count}, 最小={min_count}, 平均={avg_count:.0f}")
-        print(f"     (比值 最大/最小 = {max_count/min_count:.1f}，理想值<10)")
-
-    # 3. 宏观类别覆盖
-    macro_coverage = set(mapping_dict.values()) - {"噪声数据(Outliers)"}
-    print(f"  📊 宏观类别覆盖: {len(macro_coverage)} / {len(MACRO_TOPIC_NAMES)}")
-    uncovered = set(MACRO_TOPIC_NAMES) - macro_coverage
-    if uncovered:
-        print(f"     ⚠️ 未覆盖的类别: {uncovered}")
-
-    # 4. 主题纯度（宏观类别内聚性）
-    for macro in MACRO_TOPIC_NAMES:
-        belonging = [tid for tid, m in mapping_dict.items() if m == macro and tid != -1]
-        total_in_macro = sum(topics.count(tid) for tid in belonging)
-        print(f"  📊 {macro}: {len(belonging)}个子主题, {total_in_macro}条数据")
-
-    print("=" * 50 + "\n")
-
+            
+        f.write(f"{'='*70}\n🗑️ 隔离的边缘/无效噪声数据: {noise_count} 条\n{'='*70}\n")
+        
+    logger.info(f"✅ 处理全流程结束，所有文件均已输出至：{OUTPUT_DIR}")
 
 # ==================== 主函数 ====================
 if __name__ == "__main__":
-    # 加载数据
     note_ids, full_texts, seg_texts = load_data(INPUT_FILE)
-
-    # 初始化流水线
-    pipeline_models = initialize_pipeline()
-
-    # 训练与优化（传入seg_texts以备扩展使用）
-    topic_model, topics, mapping_dict, confidence_dict = train_and_optimize(
-        full_texts, seg_texts, pipeline_models
-    )
-
-    # 质量评估
-    evaluate_clustering(topic_model, topics, mapping_dict, full_texts)
-
-    # 保存结果
-    save_results(
-        topic_model, topics, note_ids, full_texts, seg_texts,
-        mapping_dict, confidence_dict
-    )
-
+    
+    pipeline_models = initialize_pipeline(data_size=len(full_texts))
+    
+    topic_model, topics, mapping_dict, confidence_dict = train_and_optimize(full_texts, seg_texts, pipeline_models)
+    evaluate_clustering(topics, mapping_dict, confidence_dict)
+    save_results(topic_model, topics, note_ids, full_texts, seg_texts, mapping_dict, confidence_dict)
+    
     logger.info("🎉 全部流程执行完毕！")
