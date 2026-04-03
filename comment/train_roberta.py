@@ -1,182 +1,166 @@
 import os
 import pandas as pd
 import torch
+import torch.nn as nn
 import numpy as np
 from datasets import Dataset
 from transformers import (
-    AutoTokenizer, 
-    AutoModelForSequenceClassification, 
-    TrainingArguments, 
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    TrainingArguments,
     Trainer,
-    DataCollatorWithPadding
+    DataCollatorWithPadding,
+    EarlyStoppingCallback
 )
 from sklearn.metrics import accuracy_score, f1_score
 
-# ==================== 核心配置与标签映射 ====================
-# 定义的5层标签名称映射
-LABEL_NAMES = {
-    1: "正向情感（强正向/弱正向）",
-    0: "中性情感（客观/中立）",
-    -1: "负向情感（弱负向/强负向）",
-    2: "解析失败（标签值非法）",
-    -2: "调用失败（API/网络错误）"
-}
+# ==================== 1. 核心配置 ====================
+LABEL2ID = {"-1": 0, "0": 1, "1": 2}
+ID2LABEL = {0: "-1", 1: "0", 2: "1"}
 
-# 模型底层不认识负数，必须将其映射为 0, 1, 2
-LABEL2ID = {-1: 0, 0: 1, 1: 2}
-ID2LABEL = {0: -1, 1: 0, 2: 1}
-
+# ==================== 2. 评估指标计算 (优化版) ====================
 def compute_metrics(eval_pred):
-    """计算 Accuracy 和 Macro-F1（完美适配原始标签 -1/0/1）"""
     logits, labels = eval_pred
+    # 处理可能存在的 tuple (如果模型输出复杂结构)
+    if isinstance(logits, tuple):
+        logits = logits[0]
+        
+    predictions = np.argmax(logits, axis=-1)
+
+    # 直接基于 ID (0, 1, 2) 计算，避免来回映射，提升效率
+    acc = accuracy_score(labels, predictions)
+    f1_macro = f1_score(labels, predictions, average='macro')
     
-    # 模型输出的是内部ID（0/1/2），先还原为原始标签（-1/0/1）
-    pred_ids = np.argmax(logits, axis=-1)
-    predictions = [ID2LABEL[pid] for pid in pred_ids]  
-    true_labels = [ID2LABEL[lid] for lid in labels]    
+    # 计算每个类的 F1，供内部参考，不再使用 print 干扰进度条
+    f1_per_class = f1_score(labels, predictions, average=None, labels=[0, 1, 2])
     
-    acc = accuracy_score(true_labels, predictions)
-    # 采用 Macro-F1 保证小众情绪也能被公平评估
-    f1 = f1_score(true_labels, predictions, average='macro')
-    
-    return {"accuracy": acc, "f1_macro": f1}
+    return {
+        "accuracy": acc,
+        "f1_macro": f1_macro,
+        "f1_neg": f1_per_class[0],
+        "f1_neu": f1_per_class[1],
+        "f1_pos": f1_per_class[2]
+    }
+
+# ==================== 3. 加权损失 Trainer ====================
+class WeightedTrainer(Trainer):
+    def __init__(self, class_weights=None, **kwargs):
+        super().__init__(**kwargs)
+        self.class_weights = class_weights
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        # 使用 get 而不是 pop，避免破坏 inputs 字典影响其他评估插件
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+
+        if self.class_weights is not None:
+            # 确保 weights 与 logits 在同一设备 (GPU)
+            loss_fn = nn.CrossEntropyLoss(weight=self.class_weights.to(logits.device))
+        else:
+            loss_fn = nn.CrossEntropyLoss()
+
+        loss = loss_fn(logits, labels)
+        return (loss, outputs) if return_outputs else loss
 
 def main():
-    print("🤖 正在为您启动 RoBERTa 模型微调程序（标签：-1负面 / 0中立 / 1正面）...")
+    print("🚀 RTX 5070 Optimized Version Starting...")
     
-    # ==================== 1. 稳妥的路径配置 ====================
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    train_file = os.path.join(current_dir, 'bert_data', 'train.csv')
-    val_file = os.path.join(current_dir, 'bert_data', 'val.csv')
-    output_model_dir = os.path.join(current_dir, 'saved_model')
+    MODEL_NAME = "hfl/chinese-roberta-wwm-ext" 
     
-    os.makedirs(output_model_dir, exist_ok=True)
+    # --- 加载数据 ---
+    df_train = pd.read_csv(os.path.join(current_dir, 'bert_data', 'train.csv'))
+    df_val = pd.read_csv(os.path.join(current_dir, 'bert_data', 'val.csv'))
 
-    # ==================== 2. 数据加载 ====================
-    print("📁 正在加载并清洗训练集和验证集...")
-    df_train = pd.read_csv(train_file)
-    df_val = pd.read_csv(val_file)
+    valid_labels = [-1, 0, 1]
+    df_train = df_train[df_train['label'].isin(valid_labels)].copy()
+    df_val = df_val[df_val['label'].isin(valid_labels)].copy()
     
-    # 仅保留 label 为 -1, 0, 1 的有效数据
-    # 自动丢弃 2(解析失败) 和 -2(调用失败) 的数据
-    valid_labels =[-1, 0, 1]
-    
-    df_train = df_train[
-        (df_train['content'].notna()) & 
-        (df_train['content'].str.strip() != '') &
-        (df_train['label'].isin(valid_labels))
-    ].copy()
-    
-    df_val = df_val[
-        (df_val['content'].notna()) & 
-        (df_val['content'].str.strip() != '') &
-        (df_val['label'].isin(valid_labels))
-    ].copy()
-    
-    if len(df_train) == 0 or len(df_val) == 0:
-        print("❌ 灾难性错误：训练集/验证集无有效数据！请检查 CSV 文件中是否包含 -1, 0, 1 标签。")
-        return
-    
-    # 打印清洗后的分布情况
-    # 
-    print("\n📊 训练集有效数据分布：")
-    train_ori_counts =      df_train['label'].value_counts().sort_index()
-    total_train = len(df_train)  # 获取总数量
-    print(f"📈 训练集总计: {total_train} 条")  # 显示总数量
-    for label in valid_labels:
-        count = train_ori_counts.get(label, 0)
-        print(f"   ➤ {LABEL_NAMES[label]}: {count} 条")
-        
-    # 将业务标签 (-1,0,1) 转换为模型可读的 ID (0,1,2)
-    df_train['labels'] = df_train['label'].map(LABEL2ID).astype(int)
-    df_val['labels'] = df_val['label'].map(LABEL2ID).astype(int)
+    df_train['labels'] = df_train['label'].astype(str).map(LABEL2ID).astype(int)
+    df_val['labels'] = df_val['label'].astype(str).map(LABEL2ID).astype(int)
 
-    # 封装为 HuggingFace 标准 Dataset
+    # --- 权重计算 ---
+    train_label_counts = df_train['labels'].value_counts().sort_index()
+    total = len(df_train)
+    weights = [total / (3 * train_label_counts.get(i, 1)) for i in [0, 1, 2]]
+    class_weights = torch.tensor(weights, dtype=torch.float32)
+    # 归一化权重以防 Loss 初始值过大/过小导致梯度爆炸
+    class_weights = class_weights / class_weights.mean()
+
+    # --- 模型加载 ---
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME, num_labels=3, label2id=LABEL2ID, id2label=ID2LABEL
+    )
+
+    # --- 数据处理 ---
     train_dataset = Dataset.from_pandas(df_train[['content', 'labels']])
     val_dataset = Dataset.from_pandas(df_val[['content', 'labels']])
 
-    # ==================== 3. 模型与分词器初始化 ====================
-    MODEL_NAME = "hfl/chinese-roberta-wwm-ext"
-    print(f"\n📥 正在加载预训练大脑: {MODEL_NAME}")
-    
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    
-    # 显式告知模型：我们做的是 3 分类，且绑定了映射字典
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME, 
-        num_labels=3,
-        label2id=LABEL2ID,
-        id2label=ID2LABEL
-    )
+    # 动态 padding (DataCollator) 结合固定截断
+    MAX_LEN = 128
+    tokenized_train = train_dataset.map(lambda x: tokenizer(x["content"], truncation=True, max_length=MAX_LEN), batched=True)
+    tokenized_val = val_dataset.map(lambda x: tokenizer(x["content"], truncation=True, max_length=MAX_LEN), batched=True)
 
-    # ==================== 4. 显存优化：动态分词与张量化 ====================
-    def tokenize_function(examples):
-        # 对于小红书评论，128字能覆盖99%的文本。
-        return tokenizer(examples["content"], truncation=True, max_length=256)
+    # --- 训练参数 (RTX 5070 8GB 终极优化) ---
+    # 根据你的操作系统设置 workers
+    num_workers = 0 if os.name == 'nt' else 4 # nt 代表 Windows
 
-    print("✂️ 正在对文本进行高效分词与张量编码...")
-    tokenized_train = train_dataset.map(tokenize_function, batched=True, remove_columns=["content"])
-    tokenized_val = val_dataset.map(tokenize_function, batched=True, remove_columns=["content"])
-    
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-    # ==================== 5. 训练超参数设置 ====================
-    print("⚙️ 正在为设置训练配置...")
     training_args = TrainingArguments(
-        output_dir=os.path.join(current_dir, 'checkpoint_temp'), 
-        num_train_epochs=4,                 
-        per_device_train_batch_size=16,      # 8G显卡极值，若依然爆显存，请改为8并设置 gradient_accumulation_steps=2
-        per_device_eval_batch_size=32,       # 评估不占用梯度显存，可调大
-        learning_rate=2e-5,                  # RoBERTa微调的真理学习率
-        warmup_ratio=0.1,                    # 【工程师优化】：预热前10%步数，防止初期梯度爆炸，收敛更平滑
-        weight_decay=0.01,                  
-        eval_strategy="epoch",              
-        save_strategy="epoch",              
-        load_best_model_at_end=True,        
-        metric_for_best_model="f1_macro",   
-        greater_is_better=True,
-        fp16=True,                           # 【核心】半精度计算，显存占用直接减半！
-        logging_steps=10,                   
-        save_total_limit=2,                 
-        seed=42,
-        report_to="none"                     # 关闭 wandb 等第三方日志看板
+        output_dir=os.path.join(current_dir, 'checkpoint_temp'),
+        num_train_epochs=10,
+        learning_rate=2e-5,
+        
+        # 显存管理策略
+        per_device_train_batch_size=16, # 如果后续报 OOM，改为 8
+        gradient_accumulation_steps=1,  # 如果 batch_size 改为 8，这里改为 2 即可保持原有效果
+        per_device_eval_batch_size=32,
+        
+        # 硬件加速核心
+        bf16=True, 
+        optim="adamw_8bit", # 【新增优化】使用 8-bit AdamW 极大地节省优化器显存消耗
+        
+        # Dataloader设置
+        dataloader_num_workers=num_workers, # 避免 Windows 死锁
+        dataloader_pin_memory=True,
+        
+        # 策略优化
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="f1_macro",
+        save_total_limit=2, # 减少磁盘占用
+        warmup_ratio=0.1,
+        weight_decay=0.01,
+        logging_steps=10,
+        report_to="none",
+        
+        # 【预留方案】如果不小心把 max_length 加大到了 512 导致显存不够，将下面这行设为 True
+        gradient_checkpointing=False 
     )
 
-    # ==================== 6. 初始化并引爆训练 ====================
-    trainer = Trainer(
+    trainer = WeightedTrainer(
+        class_weights=class_weights,
         model=model,
         args=training_args,
         train_dataset=tokenized_train,
         eval_dataset=tokenized_val,
-        processing_class=tokenizer,         # 【修正错误】：适配最新版 Transformers！旧版为 tokenizer=tokenizer
-        data_collator=data_collator,
-        compute_metrics=compute_metrics     
+        data_collator=DataCollatorWithPadding(tokenizer),
+        compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
-    print("🔥 开始高强度反向传播！")
+    print("🔥 开始本地微调 (请使用任务管理器监控 8GB 显存使用量)...")
     trainer.train()
-
-    # ==================== 7. 保存巅峰模型与配置 ====================
-    print(f"\n🎉 训练圆满完成！正在保存最强权重至: {output_model_dir}")
-    trainer.save_model(output_model_dir)
-    tokenizer.save_pretrained(output_model_dir)
     
-    # 额外保存您定义的业务配置（方便全量推理时自动翻译标签）
-    import json
-    config_path = os.path.join(output_model_dir, "label_mapping.json")
-    with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump({
-            "LABEL2ID": LABEL2ID, 
-            "ID2LABEL": ID2LABEL,
-            "LABEL_NAMES": LABEL_NAMES
-        }, f, ensure_ascii=False, indent=4)
-        
-    print(f"📝 标签字典已同步保存至: {config_path}")
-    print("\n💡 微调结束！您的专属大模型已出炉，赶紧使用 evaluate_model.py 查收它的考试成绩单吧！")
+    # 保存结果
+    save_path = os.path.join(current_dir, 'saved_model')
+    trainer.save_model(save_path)
+    tokenizer.save_pretrained(save_path)
+    print(f"✅ 任务完成，模型保存在: {save_path}")
 
 if __name__ == "__main__":
-    # 训练前强制清空显存碎片，确保以 100% 的可用状态启动！
+    # 清理缓存，确保开局有干净的显存空间
     torch.cuda.empty_cache()
-    # 开启 CUDA 同步调试（若遇底层报错可快速定位）
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     main()

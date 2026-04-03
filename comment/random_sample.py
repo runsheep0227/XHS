@@ -13,7 +13,7 @@ def main():
     output_file = os.path.join(current_dir, 'bert_data', 'llm_sample_data.json')
     
     # 设置抽样数量，可以随时在这里修改
-    SAMPLE_SIZE = 5000
+    SAMPLE_SIZE = 8000
     
     # 1. 检查输入文件是否存在
     if not os.path.exists(input_file):

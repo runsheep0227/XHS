@@ -3,7 +3,7 @@
 ==================================================
 
 【一、基本信息】
-清洗时间: 2026-03-28 16:27:06
+清洗时间: 2026-03-29 12:40:48
 输入文件: E:\document\PG\studio\content\cleaned_desc.json
 数据目录: E:\document\PG\studio\content\bertopic_ready_data
 
