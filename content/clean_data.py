@@ -1,13 +1,3 @@
-"""
-clean_data.py - 数据清洗脚本
-
-功能：
-1. 数据质量校验
-2. 文本清洗（标点，数字、表情等）
-3. 分词处理
-4. 质量过滤与报告
-"""
-
 import json
 import os
 import re
@@ -27,7 +17,7 @@ STOPWORDS_FILE = WORK_DIR / "aigc_xhs_stopwords.txt"
 KEYWORDS_FILE = WORK_DIR / "aigc_keyword.txt"
 
 # 清洗参数
-KEEP_ENGLISH = False # 是否保留英文字符
+KEEP_ENGLISH = True # 是否保留英文字符
 MIN_FULL_TEXT_LEN = 20 # 最小文本长度（字符数）
 MIN_SEG_WORD_COUNT = 10 # 最小分词数量（去除停用词后）
 

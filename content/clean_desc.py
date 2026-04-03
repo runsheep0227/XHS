@@ -1,12 +1,3 @@
-"""
-clean_desc.py - 数据字段抽取脚本
-
-功能：
-1. 从原始JSON文件中抽取核心字段
-2. 数据校验（必填字段、note_id唯一性）
-3. 错误报告与统计
-"""
-
 import json
 import os
 import sys

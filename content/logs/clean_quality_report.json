@@ -1,23 +1,23 @@
 {
-  "timestamp": "2026-03-15 13:34:32",
+  "timestamp": "2026-03-29 12:40:48",
   "config": {
-    "keep_english": false,
+    "keep_english": true,
     "min_full_text_len": 20,
     "min_seg_word_count": 10,
-    "stopwords_count": 210,
-    "keywords_count": 114
+    "stopwords_count": 214,
+    "keywords_count": 124
   },
   "stats": {
-    "total_input": 15661,
-    "valid_samples": 14552,
-    "invalid_samples": 1109,
-    "valid_ratio": 0.9291871527999489
+    "total_input": 18980,
+    "valid_samples": 18146,
+    "invalid_samples": 834,
+    "valid_ratio": 0.9560590094836671
   },
   "quality_distribution": {
     "empty_title": 0,
-    "empty_desc": 75,
-    "short_text": 353,
-    "few_words": 1109,
-    "valid": 14552
+    "empty_desc": 83,
+    "short_text": 130,
+    "few_words": 834,
+    "valid": 18146
   }
 }
