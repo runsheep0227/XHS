@@ -117,6 +117,13 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# IDE
+.idea/
+
+# 全量打标 JSON 体积大，可本地用 predict_all.py 再生；统计表仍纳入版本库
+comment/comment_results/predicted_comments.json
+comment/comment_results/*.predict_ckpt.json
+
 # Custom exclusions for large/sensitive files
 comment/checkpoint_temp/
 comment/saved_model/

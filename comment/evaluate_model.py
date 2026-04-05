@@ -26,7 +26,7 @@ NUM_CLASSES = 3
 
 # ================= 2. 数据集类 =================
 class TestDataset(Dataset):
-    def __init__(self, texts, labels, tokenizer, max_length=128):
+    def __init__(self, texts, labels, tokenizer, max_length=256):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
@@ -291,48 +291,96 @@ def plot_metrics_radar(true_labels, pred_labels, save_path):
     print(f"   ✅ 雷达图 → {save_path}")
 
 
-def save_error_analysis(texts, true_labels, pred_labels, probs, save_path):
-    """保存错误分析：被误判的样本 + 置信度"""
-    ID2LABEL_REV = {0: -1, 1: 0, 2: 1}
-    max_probs = np.max(probs, axis=1)
-    pred_class_probs = [probs[i][pred_labels[i]] for i in range(len(pred_labels))]
-
+def _collect_errors(texts, true_labels, pred_labels, probs):
+    """逐条误判信息，供 CSV 与 TXT 复用。"""
+    pred_class_probs = [float(probs[i][pred_labels[i]]) for i in range(len(pred_labels))]
     errors = []
     for i in range(len(true_labels)):
         if true_labels[i] != pred_labels[i]:
             errors.append({
-                'text': texts[i],
-                'true_label': ID2LABEL_REV[true_labels[i]],
-                'pred_label': ID2LABEL_REV[pred_labels[i]],
-                'confidence': pred_class_probs[i],
-                'prob_neg': probs[i][0],
-                'prob_neu': probs[i][1],
-                'prob_pos': probs[i][2],
+                "index": i,
+                "text": str(texts[i]),
+                "true_label": ID2LABEL[true_labels[i]],
+                "pred_label": ID2LABEL[pred_labels[i]],
+                "confidence": pred_class_probs[i],
+                "prob_neg": float(probs[i][0]),
+                "prob_neu": float(probs[i][1]),
+                "prob_pos": float(probs[i][2]),
             })
+    errors.sort(key=lambda x: x["confidence"], reverse=True)
+    return errors
 
-    # 按置信度从高到低排序（模型最"确信"却判错的最值得关注）
-    errors.sort(key=lambda x: x['confidence'], reverse=True)
+
+def save_misclassified_csv(df_test, errors, save_path):
+    """全部误判样本写入 CSV（完整正文，便于 Excel 筛选）。"""
+    rows = []
+    for err in errors:
+        i = err["index"]
+        row = {
+            "sample_index": i,
+            "true_label": err["true_label"],
+            "pred_label": err["pred_label"],
+            "confidence": round(err["confidence"], 6),
+            "prob_neg": round(err["prob_neg"], 6),
+            "prob_neu": round(err["prob_neu"], 6),
+            "prob_pos": round(err["prob_pos"], 6),
+            "content": err["text"],
+        }
+        if "note_id" in df_test.columns:
+            row["note_id"] = df_test.iloc[i].get("note_id", "")
+        rows.append(row)
+    out = pd.DataFrame(rows)
+    # note_id 放前面更顺眼
+    cols = [c for c in ["note_id", "sample_index", "true_label", "pred_label", "confidence",
+                        "prob_neg", "prob_neu", "prob_pos", "content"] if c in out.columns]
+    out = out[cols]
+    out.to_csv(save_path, index=False, encoding="utf-8-sig")
+    print(f"   ✅ 误判样本 CSV（完整内容）→ {save_path}  ({len(out)} 条)")
+
+
+def save_error_analysis(texts, true_labels, pred_labels, probs, save_path, df_test=None):
+    """
+    文本版错误分析：默认写入全部误判的完整正文（按预测置信度从高到低）。
+    若误判过多（>400 条），仅写入前 400 条正文，并提示查看 CSV。
+    """
+    errors = _collect_errors(texts, true_labels, pred_labels, probs)
+    max_lines_in_txt = 400
+    truncated = len(errors) > max_lines_in_txt
+    errors_for_txt = errors[:max_lines_in_txt] if truncated else errors
 
     lines = []
     lines.append("=" * 70)
-    lines.append("  错误分析报告（模型最确信却判错的样本，优先排查）")
+    lines.append("  错误分析报告（预测错误样本，完整正文；按「预测置信度」从高到低）")
     lines.append("=" * 70)
     lines.append(f"  总测试样本: {len(true_labels)} 条")
     lines.append(f"  预测错误:   {len(errors)} 条")
-    lines.append(f"  错误率:     {len(errors) / len(true_labels) * 100:.2f}%")
+    lines.append(f"  错误率:     {len(errors) / max(len(true_labels), 1) * 100:.2f}%")
+    if df_test is not None and "note_id" in df_test.columns:
+        lines.append("  （每条下的 note_id 与 test.csv 行对应 sample_index 列）")
     lines.append("=" * 70)
+    if truncated:
+        lines.append(f"  【说明】误判超过 {max_lines_in_txt} 条，本文仅列出前 {max_lines_in_txt} 条完整正文；")
+        lines.append("          全部误判请打开同目录 misclassified_test.csv")
+        lines.append("=" * 70)
 
-    for rank, err in enumerate(errors[:50], 1):  # 最多展示 50 条
-        lines.append(f"\n【#{rank}】")
-        lines.append(f"  文本内容: {err['text'][:100]}{'...' if len(err['text']) > 100 else ''}")
-        lines.append(f"  真实标签: {err['true_label']}  →  预测标签: {err['pred_label']}")
-        lines.append(f"  预测置信度: {err['confidence']:.4f}")
-        lines.append(f"  概率分布: 负向={err['prob_neg']:.4f} | 中性={err['prob_neu']:.4f} | 正向={err['prob_pos']:.4f}")
+    for rank, err in enumerate(errors_for_txt, 1):
+        lines.append(f"\n{'─' * 70}")
+        lines.append(f"【误判 #{rank}】sample_index={err['index']}")
+        if df_test is not None and "note_id" in df_test.columns:
+            nid = df_test.iloc[err["index"]].get("note_id", "")
+            lines.append(f"note_id: {nid}")
+        lines.append(f"真实标签: {err['true_label']}  →  模型预测: {err['pred_label']}")
+        lines.append(f"预测置信度(对预测类): {err['confidence']:.4f}")
+        lines.append(
+            f"P(负)={err['prob_neg']:.4f}  P(中)={err['prob_neu']:.4f}  P(正)={err['prob_pos']:.4f}"
+        )
+        lines.append("─ 评论正文（完整）")
+        lines.append(err["text"])
 
-    with open(save_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
+    with open(save_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
-    print(f"   ✅ 错误分析报告 → {save_path}")
+    print(f"   ✅ 错误分析报告（TXT）→ {save_path}")
     return errors
 
 
@@ -354,11 +402,14 @@ def main():
 
     # --- 加载数据 ---
     print("\n📁 加载测试集...")
-    df_test = pd.read_csv(test_file)
-    df_test = df_test.dropna(subset=['content', 'label'])
-    df_test = df_test[df_test['label'].isin([-1, 0, 1])].copy()
-    texts = df_test['content'].tolist()
-    true_labels = [LABEL2ID[label] for label in df_test['label'].tolist()]
+    df_test = pd.read_csv(test_file, encoding="utf-8-sig")
+    df_test = df_test.dropna(subset=["content", "label"])
+    df_test["label"] = pd.to_numeric(df_test["label"], errors="coerce")
+    df_test = df_test[df_test["label"].isin([-1, 0, 1])].copy()
+    df_test["label"] = df_test["label"].astype(int)
+    df_test = df_test.reset_index(drop=True)
+    texts = df_test["content"].astype(str).tolist()
+    true_labels = [LABEL2ID[int(x)] for x in df_test["label"].tolist()]
     print(f"   有效测试数据: {len(texts)} 条")
 
     # --- 加载模型 ---
@@ -434,8 +485,17 @@ def main():
     plot_roc_curves(true_labels, all_probs, os.path.join(results_dir, '06_roc_curves.png'))
     plot_pr_curves(true_labels, all_probs, os.path.join(results_dir, '07_pr_curves.png'))
     plot_metrics_radar(true_labels, pred_labels, os.path.join(results_dir, '08_metrics_radar.png'))
-    save_error_analysis(texts, true_labels, pred_labels, all_probs,
-                        os.path.join(results_dir, '09_error_analysis.txt'))
+
+    mis_csv = os.path.join(results_dir, "misclassified_test.csv")
+    errors = save_error_analysis(
+        texts,
+        true_labels,
+        pred_labels,
+        all_probs,
+        os.path.join(results_dir, "09_error_analysis.txt"),
+        df_test=df_test,
+    )
+    save_misclassified_csv(df_test, errors, mis_csv)
 
     # --- 最终汇总 ---
     print(f"\n{'=' * 60}")
@@ -450,7 +510,8 @@ def main():
         ('06_roc_curves.png',                 'ROC 曲线（One-vs-Rest）'),
         ('07_pr_curves.png',                  'Precision-Recall 曲线'),
         ('08_metrics_radar.png',              '各类别指标雷达图'),
-        ('09_error_analysis.txt',             '错误分析报告（前50条高置信度误判）'),
+        ('09_error_analysis.txt',             '误判明细 TXT（完整正文，最多400条）'),
+        ('misclassified_test.csv',            '误判样本 CSV（全部误判+完整 content）'),
         ('evaluation_report.txt',             '文字评估报告'),
     ]
     for fname, desc in output_files:
