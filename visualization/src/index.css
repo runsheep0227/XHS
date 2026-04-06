@@ -86,3 +86,27 @@ body::-webkit-scrollbar {
 .comment-view-enter {
   animation: comment-view-enter 0.28s ease-out forwards;
 }
+
+/* 细分主题页：微观主题 / 词云 切换时的面板入场 */
+@keyframes subtopic-chart-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.subtopic-chart-panel-enter {
+  animation: subtopic-chart-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subtopic-chart-panel-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

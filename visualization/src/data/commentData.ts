@@ -18,6 +18,10 @@ export interface CommentAnalysis {
   contentTopicKeywords?: string;
   /** 主题映射置信度 */
   contentMappingConfidence?: number;
+  /** content 合并：笔记正文 */
+  noteContent?: string;
+  /** content 合并：笔记简介 */
+  noteDesc?: string;
   sentiment: 'positive' | 'neutral' | 'negative';
   sentimentScore: number; // 0-1, 越高越积极
   keywords: string[];
@@ -37,6 +41,14 @@ export interface TopComment {
   noteTopicContext?: string;
 }
 
+/** 单条评论（与高评论笔记侧边项对齐，文本为本地预测/采集样本中的全文） */
+export interface NoteCommentLine {
+  id: string;
+  user: string;
+  content: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
+}
+
 export interface CommentTopic {
   id: number;
   /** 展示名：优先为笔记标题，否则为截断 note_id */
@@ -45,6 +57,12 @@ export interface CommentTopic {
   noteId?: string;
   /** 笔记页链接（来自 content/rawdata 与 CSV 合并后的 note_url，可打开原帖/评论区） */
   noteUrl?: string;
+  /** content 合并行：笔记正文（final_pro_topics.content / rawdata） */
+  noteContent?: string;
+  /** content 合并行：笔记简介 desc */
+  noteDesc?: string;
+  /** 该笔记在本地预测样本中的全部评论（完整 content，条数以样本为准） */
+  noteComments?: NoteCommentLine[];
   /** content 侧宏观主题（BERTopic） */
   contentMacroTopic?: string;
   /** 是否在 content 主题表中命中 */

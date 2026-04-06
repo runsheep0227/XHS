@@ -46,7 +46,7 @@ const YAxisAny = YAxis as any;
 const CartesianGridAny = CartesianGrid as any;
 
 /** 基于 MacBERT 的评论反馈（与笔记主题通过 note_id 对齐） */
-type FeedbackView = 'overview' | 'sentiment' | 'topics' | 'details';
+type FeedbackView = 'overview' | 'sentiment' | 'notes';
 type CommentModule = 'feedback' | 'model';
 type ModelSubView = 'overview' | 'metrics' | 'training' | 'samples';
 
@@ -78,8 +78,7 @@ function resolveNotePageHref(noteUrl: string | undefined, noteId: string | undef
 const FEEDBACK_TABS: { id: FeedbackView; label: string; short: string; icon: LucideIcon }[] = [
   { id: 'overview', label: '评论概览', short: '概览', icon: PieChart },
   { id: 'sentiment', label: '情感分布', short: '情感', icon: Heart },
-  { id: 'topics', label: '笔记与主题', short: '主题', icon: MessageCircle },
-  { id: 'details', label: '详细列表', short: '列表', icon: BarChart3 },
+  { id: 'notes', label: '笔记与主题', short: '笔记', icon: MessageCircle },
 ];
 
 const MODEL_TABS: { id: ModelSubView; label: string; icon: LucideIcon }[] = [
@@ -302,13 +301,60 @@ export default function CommentAnalysisPage() {
                     {topic.commentCount.toLocaleString()}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  {/* 情感条 */}
-                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-green-500" style={{ width: `${topic.positiveRatio * 100}%` }} />
+                <div className="flex items-center gap-2 mt-0.5">
+                  <div
+                    className={`flex-1 h-2 min-w-0 rounded-full overflow-hidden flex ${
+                      selectedTopic?.id === topic.id
+                        ? 'bg-white/14 ring-1 ring-white/35 shadow-inner shadow-black/5'
+                        : 'ring-1 ring-slate-200/90 bg-slate-100'
+                    }`}
+                    title={`积极 ${(topic.positiveRatio * 100).toFixed(0)}% · 中性 ${(topic.neutralRatio * 100).toFixed(0)}% · 消极 ${(topic.negativeRatio * 100).toFixed(0)}%`}
+                  >
+                    {topic.positiveRatio > 0 && (
+                      <div
+                        className="h-full shrink-0 transition-[width] duration-300 ease-out"
+                        style={{
+                          width: `${topic.positiveRatio * 100}%`,
+                          minWidth: topic.positiveRatio >= 0.03 ? undefined : 3,
+                          backgroundColor:
+                            selectedTopic?.id === topic.id ? '#6ee7b7' : SENT_COLORS.pos,
+                        }}
+                      />
+                    )}
+                    {topic.neutralRatio > 0 && (
+                      <div
+                        className="h-full shrink-0 transition-[width] duration-300 ease-out"
+                        style={{
+                          width: `${topic.neutralRatio * 100}%`,
+                          minWidth: topic.neutralRatio >= 0.03 ? undefined : 3,
+                          backgroundColor:
+                            selectedTopic?.id === topic.id ? 'rgba(255,255,255,0.42)' : SENT_COLORS.neu,
+                        }}
+                      />
+                    )}
+                    {topic.negativeRatio > 0 && (
+                      <div
+                        className="h-full shrink-0 transition-[width] duration-300 ease-out"
+                        style={{
+                          width: `${topic.negativeRatio * 100}%`,
+                          minWidth: topic.negativeRatio >= 0.03 ? undefined : 3,
+                          backgroundColor:
+                            selectedTopic?.id === topic.id ? '#fda4af' : SENT_COLORS.neg,
+                        }}
+                      />
+                    )}
                   </div>
-                  <span className={`text-xs ${selectedTopic?.id === topic.id ? 'text-white/80' : 'text-green-500'}`}>
+                  <span
+                    className={`text-[10px] tabular-nums shrink-0 font-medium leading-none ${
+                      selectedTopic?.id === topic.id ? 'text-white/90' : 'text-slate-500'
+                    }`}
+                  >
                     {(topic.positiveRatio * 100).toFixed(0)}%
+                    <span
+                      className={`ml-0.5 font-normal ${selectedTopic?.id === topic.id ? 'text-white/65' : 'text-slate-400'}`}
+                    >
+                      积极
+                    </span>
                   </span>
                 </div>
               </div>
@@ -428,16 +474,17 @@ export default function CommentAnalysisPage() {
                 className="comment-view-enter"
               >
                 {commentModule === 'feedback' && feedbackView === 'overview' && bundle && (
-                  <OverviewView bundle={bundle} />
+                  <OverviewView bundle={bundle} selectedTopic={selectedTopic} />
                 )}
                 {commentModule === 'feedback' && feedbackView === 'sentiment' && bundle && (
                   <SentimentView bundle={bundle} />
                 )}
-                {commentModule === 'feedback' && feedbackView === 'topics' && (
-                  <CommentTopicsView topics={topics} />
-                )}
-                {commentModule === 'feedback' && feedbackView === 'details' && (
-                  <DetailsView analysis={filteredAnalysis} onNoteClick={setSelectedNoteAnalysis} />
+                {commentModule === 'feedback' && feedbackView === 'notes' && (
+                  <NotesTopicsUnifiedView
+                    analysis={filteredAnalysis}
+                    topics={topics}
+                    onNoteClick={setSelectedNoteAnalysis}
+                  />
                 )}
                 {commentModule === 'model' && bundle?.evalParse && (
                   <RoBERTaModelView
@@ -483,8 +530,166 @@ export default function CommentAnalysisPage() {
   );
 }
 
-// 评论概览组件
-function OverviewView({ bundle }: { bundle: LiveCommentBundle }) {
+/** 概览页 · 选中笔记：情感统计与评论列表（正文不在此重复展示） */
+function OverviewSelectedNoteView({ topic }: { topic: CommentTopic }) {
+  const lines = topic.noteComments ?? [];
+  const sampleN = lines.length;
+  const cPos = lines.filter((c) => c.sentiment === 'positive').length;
+  const cNeu = lines.filter((c) => c.sentiment === 'neutral').length;
+  const cNeg = lines.filter((c) => c.sentiment === 'negative').length;
+  const denom = sampleN || 1;
+  const pct = (x: number) => ((x / denom) * 100).toFixed(1);
+  const useTopicRatios = sampleN === 0;
+  const pPos = useTopicRatios ? topic.positiveRatio * 100 : Number(pct(cPos));
+  const pNeu = useTopicRatios ? topic.neutralRatio * 100 : Number(pct(cNeu));
+  const pNeg = useTopicRatios ? topic.negativeRatio * 100 : Number(pct(cNeg));
+
+  const sentimentCards = [
+    {
+      key: 'pos',
+      label: '积极',
+      count: useTopicRatios ? null : cPos,
+      pct: pPos,
+      color: 'from-emerald-50 to-green-50',
+      border: 'border-emerald-100/80',
+      icon: Heart,
+      iconBg: 'bg-emerald-500',
+      desc: '样本内模型判为正向：感谢、认同、推荐等偏正面反馈。',
+    },
+    {
+      key: 'neu',
+      label: '中性',
+      count: useTopicRatios ? null : cNeu,
+      pct: pNeu,
+      color: 'from-slate-50 to-slate-100/90',
+      border: 'border-slate-200/80',
+      icon: MessageCircle,
+      iconBg: 'bg-slate-400',
+      desc: '陈述、追问、补充信息等无明显褒贬倾向的语气。',
+    },
+    {
+      key: 'neg',
+      label: '消极',
+      count: useTopicRatios ? null : cNeg,
+      pct: pNeg,
+      color: 'from-rose-50 to-red-50/80',
+      border: 'border-rose-100/70',
+      icon: ThumbsDown,
+      iconBg: 'bg-rose-500',
+      desc: '批评、抱怨、质疑或负面体验等与正向相反的表达。',
+    },
+  ] as const;
+
+  return (
+    <div className="h-full space-y-8">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-cyan-600/90 mb-1">评论概览 · 单篇</p>
+          <h3 className="text-lg font-semibold tracking-tight text-slate-800">{topic.name}</h3>
+        </div>
+        {resolveNotePageHref(topic.noteUrl, topic.noteId) && (
+          <a
+            href={resolveNotePageHref(topic.noteUrl, topic.noteId)!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 inline-flex items-center gap-1 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100/80"
+          >
+            查看原帖/评论区 →
+          </a>
+        )}
+      </header>
+
+      <section className="space-y-4">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800">本篇评论 · 情感统计与说明</h4>
+          <p className="text-xs text-slate-500 mt-1">
+            {sampleN > 0
+              ? `基于样本内共 ${sampleN} 条评论的 MacBERT 预测标签。`
+              : '当前无样本评论行，下列占比为话题聚合表中的比例（与左侧列表一致）。'}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {sentimentCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.key}
+                className={`rounded-2xl border ${card.border} bg-gradient-to-br ${card.color} p-4 shadow-sm`}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`w-10 h-10 ${card.iconBg} rounded-xl flex items-center justify-center shadow-sm`}>
+                    <Icon className="w-5 h-5 text-white" aria-hidden />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold tabular-nums text-slate-800">{card.pct.toFixed(1)}%</div>
+                    <div className="text-xs text-slate-600">
+                      {card.label}
+                      {card.count != null ? (
+                        <span className="text-slate-500"> · {card.count} 条</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">{card.desc}</p>
+              </div>
+            );
+          })}
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4">
+          <p className="text-[11px] font-medium text-slate-500 mb-2">样本内情感结构</p>
+          <div className="flex h-3 rounded-full overflow-hidden ring-1 ring-slate-200/80">
+            <div className="h-full transition-all" style={{ width: `${pPos}%`, backgroundColor: SENT_COLORS.pos }} />
+            <div className="h-full transition-all" style={{ width: `${pNeu}%`, backgroundColor: SENT_COLORS.neu }} />
+            <div className="h-full transition-all" style={{ width: `${pNeg}%`, backgroundColor: SENT_COLORS.neg }} />
+          </div>
+          <div className="flex flex-wrap gap-4 mt-2 text-[11px] tabular-nums text-slate-600">
+            <span style={{ color: SENT_COLORS.pos }}>积极 {pPos.toFixed(1)}%</span>
+            <span style={{ color: SENT_COLORS.neu }}>中性 {pNeu.toFixed(1)}%</span>
+            <span style={{ color: SENT_COLORS.neg }}>消极 {pNeg.toFixed(1)}%</span>
+            <span className="text-slate-400">
+              均值得分（0–1）<span className="text-slate-700 font-semibold ml-1">{topic.avgSentimentScore.toFixed(3)}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+        <h4 className="text-sm font-semibold text-slate-800 mb-1">评论全文（预测样本）</h4>
+        <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+          每条附模型预测情感；完整语料以本地 CSV 为准。
+        </p>
+        <div className="space-y-3 max-h-[min(520px,55vh)] overflow-y-auto pr-1">
+          {!lines.length ? (
+            <p className="text-sm text-slate-400 text-center py-8">暂无样本评论</p>
+          ) : (
+            lines.map((c) => (
+              <div key={c.id} className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-left">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-medium text-slate-800 truncate">{c.user}</span>
+                  <span
+                    className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-semibold ${
+                      c.sentiment === 'positive'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : c.sentiment === 'negative'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-slate-200/90 text-slate-700'
+                    }`}
+                  >
+                    {c.sentiment === 'positive' ? '积极' : c.sentiment === 'negative' ? '消极' : '中性'}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap break-words">{c.content}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** 全库极性（CSV）+ 预测样本词频条形图 + 词云；展示在「情感分布」页首部 */
+function GlobalPolarityAndWordFreqCharts({ bundle }: { bundle: LiveCommentBundle }) {
   const gradId = useId().replace(/:/g, '');
   const barGradId = `bar-${gradId}`;
   const pieData = bundle.polarity
@@ -496,18 +701,18 @@ function OverviewView({ bundle }: { bundle: LiveCommentBundle }) {
     : [];
   const totalPolarity = bundle.polarity?.total ?? 0;
 
-  const barData = bundle.wordCloud.slice(0, 16).map(w => ({
+  const barData = bundle.wordCloud.slice(0, 16).map((w) => ({
     word: w.text,
     n: w.weight,
   }));
 
   return (
-    <div className="h-full space-y-8">
+    <div className="space-y-8 pb-2 border-b border-slate-100">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold tracking-tight text-slate-800">评论分析概览</h3>
+          <h3 className="text-base font-semibold tracking-tight text-slate-800">全库极性与样本词频</h3>
           <p className="text-xs text-slate-500 mt-1 max-w-xl">
-            环形图为全量极性（CSV）；词频来自当前预测样本，已过滤 meaningless_word.txt
+            环形图为全量极性（prediction_stats_polarity.csv）；词频来自当前预测样本，已过滤 meaningless_word.txt
           </p>
         </div>
         {totalPolarity > 0 && (
@@ -572,12 +777,7 @@ function OverviewView({ bundle }: { bundle: LiveCommentBundle }) {
               <BarChartAny data={barData} layout="vertical" margin={{ left: 4, right: 16 }}>
                 <CartesianGridAny strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                 <XAxisAny type="number" tick={{ fontSize: 10, fill: '#64748b' }} />
-                <YAxisAny
-                  type="category"
-                  dataKey="word"
-                  width={76}
-                  tick={{ fontSize: 10, fill: '#475569' }}
-                />
+                <YAxisAny type="category" dataKey="word" width={76} tick={{ fontSize: 10, fill: '#475569' }} />
                 <TooltipAny
                   formatter={(v: number) => [v.toLocaleString(), '次']}
                   contentStyle={CHART_TOOLTIP_STYLE}
@@ -623,6 +823,24 @@ function OverviewView({ bundle }: { bundle: LiveCommentBundle }) {
   );
 }
 
+/** 评论概览：仅当选中左侧笔记时展示单篇内容；未选中时为引导占位（全库图表见「情感分布」） */
+function OverviewView({ selectedTopic }: { bundle: LiveCommentBundle; selectedTopic: CommentTopic | null }) {
+  if (selectedTopic) {
+    return <OverviewSelectedNoteView topic={selectedTopic} />;
+  }
+
+  return (
+    <div className="h-full min-h-[280px] flex flex-col items-center justify-center text-center px-8 py-16 rounded-2xl border border-dashed border-slate-200 bg-slate-50/40">
+      <MessageSquare className="w-12 h-12 text-slate-300 mb-4" aria-hidden />
+      <p className="text-sm font-semibold text-slate-700 mb-2">请从左侧选择一篇高评论笔记</p>
+      <p className="text-xs text-slate-500 max-w-md leading-relaxed">
+        选择后将在此展示该笔记的情感统计与评论全文。全库情感极性、样本高频词与词云请切换到
+        <span className="text-slate-700 font-medium"> 情感分布 </span>。
+      </p>
+    </div>
+  );
+}
+
 // 情感分布组件
 function SentimentView({ bundle }: { bundle: LiveCommentBundle }) {
   const m = bundle.metrics;
@@ -631,9 +849,12 @@ function SentimentView({ bundle }: { bundle: LiveCommentBundle }) {
 
   return (
     <div className="h-full space-y-8">
+      <GlobalPolarityAndWordFreqCharts bundle={bundle} />
       <div>
         <h3 className="text-lg font-semibold tracking-tight text-slate-800">情感分布详情</h3>
-        <p className="text-xs text-slate-500 mt-1">全库比例与样本维度的结构拆解（均为 comment 管线产出）</p>
+        <p className="text-xs text-slate-500 mt-1">
+          上为全库极性饼图与样本词频、词云；以下为全库比例卡片与样本维度拆解（均为 comment 管线产出）。
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-gradient-to-br from-emerald-50 to-green-100 rounded-2xl p-6 border border-emerald-100/60 shadow-sm">
@@ -744,139 +965,143 @@ function SentimentView({ bundle }: { bundle: LiveCommentBundle }) {
   );
 }
 
-// 评论主题组件
-function CommentTopicsView({ topics }: { topics: CommentTopic[] }) {
+/** 笔记 × 主题 × 评论：合并原「笔记与主题」卡片式概览与「详细列表」点击详情，数据源一致（note_id 对齐） */
+function NotesTopicsUnifiedView({
+  analysis,
+  topics,
+  onNoteClick,
+}: {
+  analysis: CommentAnalysis[];
+  topics: CommentTopic[];
+  onNoteClick: (a: CommentAnalysis) => void;
+}) {
+  const topicByNoteId = useMemo(() => {
+    const m = new Map<string, CommentTopic>();
+    for (const t of topics) {
+      if (t.noteId) m.set(t.noteId, t);
+    }
+    return m;
+  }, [topics]);
+
   return (
     <div className="h-full overflow-auto">
       <div className="mb-6">
         <h3 className="text-lg font-semibold tracking-tight text-slate-800">笔记与主题（note_id 对齐）</h3>
-        <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-          每条记录对应一篇笔记：评论侧来自 comment 聚合，主题侧宏观/微观标签来自 content
-          BERTopic 表同一 note_id；下列情感与关键词反映该笔记下评论反馈。
+        <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
+          每条对应一篇高评论笔记：主题侧与 content BERTopic 同 note_id；下列为评论侧情感结构与关键词。
+          <span className="text-slate-600">点击卡片</span>可打开完整字段与 content 关联摘要（原「详细列表」行为）。
         </p>
       </div>
+      {analysis.length === 0 ? (
+        <p className="text-sm text-slate-500 py-10 text-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50">
+          当前筛选下暂无笔记，请调整顶部搜索或情感筛选。
+        </p>
+      ) : null}
       <div className="space-y-3">
-        {topics.map((topic, i) => (
-          <div
-            key={topic.id}
-            className="rounded-2xl border border-slate-200/80 bg-white p-4 md:p-5 shadow-sm hover:shadow-md hover:border-cyan-200/50 transition-all duration-200"
-          >
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-cyan-500/15 to-indigo-600/15 text-indigo-700 border border-indigo-100/80 flex items-center justify-center text-sm font-bold tabular-nums">
-                  {i + 1}
-                </span>
-                <div className="min-w-0">
-                  <span className="font-semibold text-slate-800 block truncate">{topic.name}</span>
-                  {topic.contentMacroTopic && (
-                    <span className="text-xs text-indigo-600 mt-0.5 block leading-snug">
-                      BERTopic 宏观 · {topic.contentMacroTopic}
-                      {topic.contentMicroTopicId != null ? ` · 微观#${topic.contentMicroTopicId}` : ''}
-                    </span>
-                  )}
+        {analysis.map((item, i) => {
+          const topic = item.noteId ? topicByNoteId.get(item.noteId) : undefined;
+          const displayTitle = topic?.name ?? item.noteTitle;
+          const macroLine = topic?.contentMacroTopic ?? item.topicName;
+          const microId = topic?.contentMicroTopicId ?? item.contentMicroTopicId;
+          const microKw = topic?.contentMicroKeywords ?? item.contentMicroKeywords;
+
+          return (
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onNoteClick(item)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onNoteClick(item);
+                }
+              }}
+              className="rounded-2xl border border-slate-200/80 bg-white p-4 md:p-5 cursor-pointer shadow-sm hover:shadow-md hover:border-indigo-200/70 transition-all duration-200 text-left"
+            >
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-cyan-500/15 to-indigo-600/15 text-indigo-700 border border-indigo-100/80 flex items-center justify-center text-sm font-bold tabular-nums">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <span className="font-semibold text-slate-800 block truncate">{displayTitle}</span>
+                    {macroLine && (
+                      <span className="text-xs text-indigo-600 mt-0.5 block leading-snug truncate">
+                        BERTopic 宏观 · {macroLine}
+                        {microId != null ? ` · 微观#${microId}` : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="text-sm text-slate-500 tabular-nums">
+                    {(topic?.commentCount ?? item.commentCount).toLocaleString()} 条评论
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-lg text-xs font-medium ${
+                      item.sentiment === 'positive'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                        : item.sentiment === 'negative'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200/80'
+                    }`}
+                  >
+                    {item.sentiment === 'positive' ? '积极' : item.sentiment === 'negative' ? '消极' : '中性'}
+                  </span>
                 </div>
               </div>
-              <span className="text-sm text-slate-500 shrink-0 tabular-nums">
-                {topic.commentCount.toLocaleString()} 条
-              </span>
-            </div>
 
-            <div className="flex h-2.5 rounded-full overflow-hidden mb-3 ring-1 ring-slate-900/[0.06]">
-              <div
-                className="transition-all"
-                style={{ width: `${topic.positiveRatio * 100}%`, backgroundColor: SENT_COLORS.pos }}
-              />
-              <div
-                className="transition-all"
-                style={{ width: `${topic.neutralRatio * 100}%`, backgroundColor: SENT_COLORS.neu }}
-              />
-              <div
-                className="transition-all"
-                style={{ width: `${topic.negativeRatio * 100}%`, backgroundColor: SENT_COLORS.neg }}
-              />
-            </div>
+              {topic ? (
+                <div className="flex h-2.5 rounded-full overflow-hidden mb-3 ring-1 ring-slate-900/[0.06]">
+                  <div
+                    className="transition-all"
+                    style={{ width: `${topic.positiveRatio * 100}%`, backgroundColor: SENT_COLORS.pos }}
+                  />
+                  <div
+                    className="transition-all"
+                    style={{ width: `${topic.neutralRatio * 100}%`, backgroundColor: SENT_COLORS.neu }}
+                  />
+                  <div
+                    className="transition-all"
+                    style={{ width: `${topic.negativeRatio * 100}%`, backgroundColor: SENT_COLORS.neg }}
+                  />
+                </div>
+              ) : null}
 
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex flex-wrap gap-1.5">
-                {topic.keywords.map(kw => (
-                  <span
-                    key={kw}
-                    className="px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-50 text-slate-700 border border-slate-200/80"
-                  >
-                    {kw}
-                  </span>
-                ))}
-              </div>
-              <div className="text-sm flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0 tabular-nums">
-                <span style={{ color: SENT_COLORS.pos }}>积极 {(topic.positiveRatio * 100).toFixed(0)}%</span>
-                <span className="text-slate-300 hidden sm:inline">·</span>
-                <span className="text-slate-500">均值 {topic.avgSentimentScore.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+              {!topic && microKw && (
+                <div className="text-xs text-indigo-600 mb-3 leading-relaxed">
+                  {microKw.length > 96 ? `${microKw.slice(0, 96)}…` : microKw}
+                </div>
+              )}
 
-// 详细数据组件
-function DetailsView({ analysis, onNoteClick }: { analysis: CommentAnalysis[]; onNoteClick: (a: CommentAnalysis) => void }) {
-  return (
-    <div className="h-full overflow-auto">
-      <div className="mb-6">
-        <h3 className="text-lg font-semibold tracking-tight text-slate-800">笔记评论详情</h3>
-        <p className="text-xs text-slate-500 mt-1">点击卡片可在右侧查看完整字段与 content 关联摘要（数据来自 comment 管线）。</p>
-      </div>
-      <div className="space-y-3">
-        {analysis.map(item => (
-          <div
-            key={item.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onNoteClick(item)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onNoteClick(item);
-              }
-            }}
-            className="rounded-2xl border border-slate-200/80 bg-white p-4 md:p-5 cursor-pointer shadow-sm hover:shadow-md hover:border-indigo-200/70 transition-all duration-200 text-left"
-          >
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <span className="font-medium text-slate-800 leading-snug">{item.noteTitle}</span>
-              <span
-                className={`shrink-0 px-2.5 py-0.5 rounded-lg text-xs font-medium ${
-                  item.sentiment === 'positive'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                    : item.sentiment === 'negative'
-                      ? 'bg-rose-50 text-rose-700 border border-rose-100'
-                      : 'bg-slate-100 text-slate-600 border border-slate-200/80'
-                }`}
-              >
-                {item.sentiment === 'positive' ? '积极' : item.sentiment === 'negative' ? '消极' : '中性'}
-              </span>
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 text-sm text-slate-500">
-              <div className="min-w-0">
-                <div className="text-slate-700 font-medium">{item.topicName}</div>
-                {item.contentMicroTopicId != null && (
-                  <div className="text-xs text-indigo-600 mt-1 leading-relaxed">
-                    微观 #{item.contentMicroTopicId}
-                    {item.contentMicroKeywords
-                      ? ` · ${item.contentMicroKeywords.length > 64 ? `${item.contentMicroKeywords.slice(0, 64)}…` : item.contentMicroKeywords}`
-                      : ''}
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 shrink-0 tabular-nums text-slate-600">
-                <span title="评论数">评论 {item.commentCount}</span>
-                <span title="平均点赞">均赞 {item.avgCommentLikes}</span>
-                <span title="情感分">得分 {(item.sentimentScore * 100).toFixed(0)}</span>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {(topic?.keywords ?? item.keywords).map(kw => (
+                    <span
+                      key={kw}
+                      className="px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-50 text-slate-700 border border-slate-200/80"
+                    >
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-sm flex flex-wrap items-center gap-x-4 gap-y-1 shrink-0 tabular-nums text-slate-600">
+                  {topic && (
+                    <>
+                      <span style={{ color: SENT_COLORS.pos }}>积极 {(topic.positiveRatio * 100).toFixed(0)}%</span>
+                      <span className="text-slate-300 hidden sm:inline">·</span>
+                      <span className="text-slate-500">均值 {topic.avgSentimentScore.toFixed(2)}</span>
+                      <span className="text-slate-300 hidden sm:inline">·</span>
+                    </>
+                  )}
+                  <span title="平均点赞">均赞 {item.avgCommentLikes}</span>
+                  <span title="情感分">得分 {(item.sentimentScore * 100).toFixed(0)}</span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -884,99 +1109,114 @@ function DetailsView({ analysis, onNoteClick }: { analysis: CommentAnalysis[]; o
 
 // 主题详情面板
 function TopicDetailPanel({ topic }: { topic: CommentTopic }) {
+  const href = resolveNotePageHref(topic.noteUrl, topic.noteId);
+  const hasMicro =
+    topic.contentMicroTopicId != null || Boolean(topic.contentMicroKeywords && topic.contentMicroKeywords.length > 0);
+
   return (
-    <div>
-      <div className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl p-4 text-white mb-4">
-        <h2 className="text-xl font-bold mb-2">{topic.name}</h2>
-        {resolveNotePageHref(topic.noteUrl, topic.noteId) && (
-          <a
-            href={resolveNotePageHref(topic.noteUrl, topic.noteId)!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-white/95 font-medium mb-2 underline underline-offset-2 hover:text-white inline-flex items-center gap-0.5"
-          >
-            查看原评论→
-          </a>
-        )}
-        {topic.contentMacroTopic && (
-          <p className="text-sm text-white/90 mb-3">
-            content 宏观主题：<span className="font-medium">{topic.contentMacroTopic}</span>
-          </p>
-        )}
-        {!topic.contentMatched && topic.noteId && (
-          <p className="text-xs text-amber-200 mb-3">未在 content/final_pro_topics 中匹配到该笔记</p>
-        )}
-        {(topic.contentMicroTopicId != null ||
-          (topic.contentMicroKeywords && topic.contentMicroKeywords.length > 0)) && (
-          <div className="text-sm text-white/90 mb-3 rounded-lg bg-white/10 p-2">
-            <div className="text-xs text-white/70 mb-0.5">BERTopic 微观</div>
-            <div className="font-mono text-xs">#{topic.contentMicroTopicId ?? '—'}</div>
-            {topic.contentMicroKeywords && (
-              <p className="text-xs text-white/85 mt-1 leading-snug">{topic.contentMicroKeywords}</p>
-            )}
-            {topic.contentMappingConfidence != null && (
-              <p className="text-xs text-white/70 mt-1">
-                映射置信度 {(topic.contentMappingConfidence * 100).toFixed(1)}%
-              </p>
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200/90 bg-white shadow-md shadow-slate-200/30 overflow-hidden">
+        <div className="h-1 w-full bg-gradient-to-r from-blue-500 via-cyan-500 to-sky-400" aria-hidden />
+        <div className="p-4 sm:p-5 space-y-4">
+          <div>
+            <h2 className="text-[15px] sm:text-base font-semibold text-slate-900 leading-snug tracking-tight">
+              {topic.name}
+            </h2>
+            {href && (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-200/90 bg-cyan-50/90 px-3 py-1.5 text-xs font-semibold text-cyan-800 hover:bg-cyan-100/90 transition-colors"
+              >
+                查看原帖 / 评论区
+                <span aria-hidden className="text-cyan-600">
+                  →
+                </span>
+              </a>
             )}
           </div>
-        )}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {topic.keywords.map(kw => (
-            <span key={kw} className="px-2 py-1 bg-white/20 rounded-full text-xs">
-              {kw}
-            </span>
-          ))}
-        </div>
-        <div className="text-sm text-white/80">
-          {topic.commentCount.toLocaleString()} 条评论
+
+          {!topic.contentMatched && topic.noteId && (
+            <div className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-950 leading-relaxed">
+              未在 content/final_pro_topics 中匹配到该笔记
+            </div>
+          )}
+
+          {topic.contentMacroTopic && (
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">宏观主题</div>
+              <p className="text-sm font-medium text-slate-800 leading-snug">{topic.contentMacroTopic}</p>
+            </div>
+          )}
+
+          {hasMicro && (
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600/85">
+                  BERTopic 微观
+                </span>
+                {topic.contentMicroTopicId != null && (
+                  <span className="shrink-0 rounded-md border border-indigo-200/80 bg-white px-2 py-0.5 font-mono text-[11px] font-medium text-indigo-900 tabular-nums">
+                    #{topic.contentMicroTopicId}
+                  </span>
+                )}
+              </div>
+              {topic.contentMicroKeywords && (
+                <p className="text-xs text-slate-700 leading-relaxed max-h-24 overflow-y-auto pr-0.5">
+                  {topic.contentMicroKeywords}
+                </p>
+              )}
+              {topic.contentMappingConfidence != null && (
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-indigo-100/80">
+                  <span className="text-[11px] text-indigo-600/90">映射置信度</span>
+                  <span className="text-xs font-bold tabular-nums text-indigo-900">
+                    {(topic.contentMappingConfidence * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {topic.keywords.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">评论关键词</div>
+              <div className="flex flex-wrap gap-1.5">
+                {topic.keywords.map((kw) => (
+                  <span
+                    key={kw}
+                    className="rounded-md border border-slate-200/90 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+                  >
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-end justify-between gap-3 border-t border-slate-100 pt-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">评论量</div>
+              <div className="text-lg font-bold tabular-nums text-slate-900 leading-none mt-1">
+                {topic.commentCount.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">rankings 全量</div>
+            </div>
+          </div>
+
+          {topic.noteId && (
+            <div className="rounded-lg bg-slate-100/80 px-2.5 py-2 border border-slate-100">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-1">note_id</div>
+              <p className="text-[10px] font-mono text-slate-600 break-all leading-snug">{topic.noteId}</p>
+            </div>
+          )}
         </div>
       </div>
-      
-      {/* 情感分布 */}
-      <div className="bg-white rounded-xl p-4 mb-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">情感分布</h3>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">积极</span>
-            <span className="text-sm text-green-600">{(topic.positiveRatio * 100).toFixed(1)}%</span>
-          </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500" style={{ width: `${topic.positiveRatio * 100}%` }} />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">中性</span>
-            <span className="text-sm text-gray-500">{(topic.neutralRatio * 100).toFixed(1)}%</span>
-          </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-gray-400" style={{ width: `${topic.neutralRatio * 100}%` }} />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">消极</span>
-            <span className="text-sm text-red-500">{(topic.negativeRatio * 100).toFixed(1)}%</span>
-          </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-red-500" style={{ width: `${topic.negativeRatio * 100}%` }} />
-          </div>
-        </div>
-      </div>
-      
-      {/* 情感得分 */}
-      <div className="bg-white rounded-xl p-4 mb-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">平均情感得分</h3>
-        <div className="text-3xl font-bold text-center text-cyan-600">
-          {topic.avgSentimentScore.toFixed(2)}
-        </div>
-      </div>
-      
-      {/* 趋势占位：细粒度按日记数据见主区「情感趋势」 */}
-      <div className="bg-white rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">说明</h3>
-        <p className="text-xs text-gray-500 leading-relaxed">
-          单条笔记不在此处生成模拟趋势线；请在中间「情感趋势」查看 rawdata 按日汇总的采集节奏。
-        </p>
+
+      <div className="rounded-xl border border-cyan-100/80 bg-cyan-50/40 p-3 text-xs text-cyan-950 leading-relaxed">
+        <span className="font-semibold text-cyan-800">提示：</span>
+        选中笔记后，<strong className="mx-0.5">评论概览</strong>可看本篇统计与评论全文；全库极性与词云在
+        <strong className="mx-0.5">情感分布</strong>。
       </div>
     </div>
   );
@@ -1035,6 +1275,25 @@ function NoteCommentModal({ analysis, onClose }: { analysis: CommentAnalysis; on
             </div>
           </div>
           
+          {(analysis.noteDesc || analysis.noteContent || analysis.noteId) && (
+            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+              <h3 className="font-semibold text-slate-800 mb-2 text-sm">笔记正文（content）</h3>
+              {analysis.noteId && (
+                <p className="text-[11px] text-slate-500 font-mono mb-2 break-all">note_id · {analysis.noteId}</p>
+              )}
+              {analysis.noteDesc && (
+                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-3">{analysis.noteDesc}</p>
+              )}
+              {analysis.noteContent ? (
+                <div className="max-h-48 overflow-y-auto rounded-lg bg-white p-3 text-sm text-slate-800 whitespace-pre-wrap border border-slate-100 leading-relaxed">
+                  {analysis.noteContent}
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800">暂无合并正文。</p>
+              )}
+            </div>
+          )}
+
           {/* 关键词 */}
           <div className="mb-6">
             <h3 className="font-semibold text-gray-700 mb-2">关键词（评论样本挖掘）</h3>
@@ -1086,9 +1345,9 @@ function NoteCommentModal({ analysis, onClose }: { analysis: CommentAnalysis; on
             </div>
           )}
           
-          {/* 热门评论 */}
+          {/* 样本评论（全文） */}
           <div>
-            <h3 className="font-semibold text-gray-700 mb-2">热门评论</h3>
+            <h3 className="font-semibold text-gray-700 mb-2">本地评论（预测样本全文）</h3>
             {!analysis.contentMatched && (
               <p className="text-xs text-gray-500 mb-3">该笔记未在 content 主题表中命中，评论无 BERTopic 语境对照。</p>
             )}

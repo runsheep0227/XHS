@@ -1,10 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useMemo, useRef } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  LineChart,
+  Line,
 } from 'recharts'
-import { Download, X, CheckSquare, Square, Info } from 'lucide-react'
+import { Download, X, CheckSquare, Square, Info, ChevronDown, FileSpreadsheet, FileText, Table2 } from 'lucide-react'
 import { Topic, TopicRecord, Note } from '../data/topicData'
 import { formatNumber } from '../utils/responsive'
 
@@ -17,6 +30,72 @@ const LegendAny = Legend as any
 const BarChartAny = BarChart as any
 const BarAny = Bar as any
 const ResponsiveContainerAny = ResponsiveContainer as any
+const RadarChartAny = RadarChart as any
+const RadarAny = Radar as any
+const PolarGridAny = PolarGrid as any
+const PolarAngleAxisAny = PolarAngleAxis as any
+const PolarRadiusAxisAny = PolarRadiusAxis as any
+const LineChartAny = LineChart as any
+const LineAny = Line as any
+
+type CompareIntervalMetric = 'likes' | 'comments' | 'collects' | 'shares'
+
+const INTERVAL_METRIC_TABS: { id: CompareIntervalMetric; label: string }[] = [
+  { id: 'likes', label: '点赞' },
+  { id: 'comments', label: '评论' },
+  { id: 'collects', label: '收藏' },
+  { id: 'shares', label: '分享' },
+]
+
+function noteValueForInterval(n: Note, metric: CompareIntervalMetric): number {
+  switch (metric) {
+    case 'likes':
+      return n.likes
+    case 'comments':
+      return n.comments
+    case 'collects':
+      return n.collects
+    case 'shares':
+      return n.shares
+  }
+}
+
+/** 与对比页折线图一致：按单条笔记在某一互动维度上的计数落入分段 */
+const METRIC_INTERVAL_BUCKETS = ['0-100', '101-500', '501-1k', '1k-5k', '5k+'] as const
+
+const METRIC_BUCKET_LABELS: Record<(typeof METRIC_INTERVAL_BUCKETS)[number], string> = {
+  '0-100': '0–100',
+  '101-500': '101–500',
+  '501-1k': '501–1k',
+  '1k-5k': '1k–5k',
+  '5k+': '5k+',
+}
+
+function countNotesInMetricBucket(
+  notes: Note[],
+  bucket: (typeof METRIC_INTERVAL_BUCKETS)[number],
+  metric: CompareIntervalMetric,
+): number {
+  const v = (n: Note) => noteValueForInterval(n, metric)
+  switch (bucket) {
+    case '0-100':
+      return notes.filter(n => v(n) <= 100).length
+    case '101-500':
+      return notes.filter(n => v(n) > 100 && v(n) <= 500).length
+    case '501-1k':
+      return notes.filter(n => v(n) > 500 && v(n) <= 1000).length
+    case '1k-5k':
+      return notes.filter(n => v(n) > 1000 && v(n) <= 5000).length
+    case '5k+':
+      return notes.filter(n => v(n) > 5000).length
+  }
+}
+
+function exportCsvBasename(base: string, suffix: string): string {
+  const d = new Date()
+  const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
+  return `${base}-${suffix}-${ts}.csv`
+}
 
 // ================================================================
 // 类型定义
@@ -127,6 +206,7 @@ export function ChartTooltip({ active, payload, label }: { active?: boolean; pay
 export function CompareView({ topics, onBack }: CompareViewProps) {
   const [selected, setSelected] = useState<Set<number>>(() => defaultCompareSelection(topics))
   const [showNoteModal, setShowNoteModal] = useState<{ topic: Topic; notes: Note[] } | null>(null)
+  const [intervalMetric, setIntervalMetric] = useState<CompareIntervalMetric>('likes')
 
   const selectedTopics = topics.filter(t => selected.has(t.id))
   const COLORS = ['#f43f5e', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899']
@@ -141,40 +221,53 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
     setSelected(next)
   }
 
-  // ── 柱状图数据 ──
-  const barData = useMemo(() => {
-    return selectedTopics.map(t => ({
-      name: t.name.length > 8 ? t.name.slice(0, 8) + '…' : t.name,
-      fullName: t.name,
-      点赞: Math.round(t.avgLikes),
-      评论: Math.round(t.avgComments),
-      收藏: Math.round(t.avgCollects),
-      分享: Math.round(t.avgShares),
-      笔记数: t.noteCount,
-    }))
-  }, [selectedTopics])
+  const topicShortLabels = useMemo(
+    () =>
+      selectedTopics.map(t =>
+        t.name.length > 8 ? `${t.name.slice(0, 8)}…` : t.name,
+      ),
+    [selectedTopics],
+  )
 
-  // ── 笔记级对比数据（按点赞分段）──
-  const notesDistributionData = useMemo(() => {
-    if (selectedTopics.length < 1) return []
-    const buckets = ['0-100', '101-500', '501-1k', '1k-5k', '5k+']
-    return buckets.map(bucket => {
-      const entry: Record<string, any> = { bucket }
-      selectedTopics.forEach(t => {
-        const notes = toNotes(t)
-        let count = 0
-        switch (bucket) {
-          case '0-100': count = notes.filter(n => n.likes <= 100).length; break
-          case '101-500': count = notes.filter(n => n.likes > 100 && n.likes <= 500).length; break
-          case '501-1k': count = notes.filter(n => n.likes > 500 && n.likes <= 1000).length; break
-          case '1k-5k': count = notes.filter(n => n.likes > 1000 && n.likes <= 5000).length; break
-          case '5k+': count = notes.filter(n => n.likes > 5000).length; break
-        }
-        entry[t.name] = count
+  // ── 雷达图：四维互动在「当前勾选组内」归一化到 0–100，便于看形状差异 ──
+  const radarData = useMemo(() => {
+    if (selectedTopics.length === 0) return []
+    const dims = [
+      { key: 'avgLikes' as const, label: '均赞' },
+      { key: 'avgComments' as const, label: '均评' },
+      { key: 'avgCollects' as const, label: '均藏' },
+      { key: 'avgShares' as const, label: '均享' },
+    ]
+    const maxes = {
+      avgLikes: Math.max(...selectedTopics.map(t => t.avgLikes), 1),
+      avgComments: Math.max(...selectedTopics.map(t => t.avgComments), 1),
+      avgCollects: Math.max(...selectedTopics.map(t => t.avgCollects), 1),
+      avgShares: Math.max(...selectedTopics.map(t => t.avgShares), 1),
+    }
+    return dims.map(({ key, label }) => {
+      const row: Record<string, string | number> = { subject: label, fullMark: 100 }
+      selectedTopics.forEach((t, i) => {
+        row[`s${i}`] = Math.round((t[key] / maxes[key]) * 100)
       })
-      return entry
+      return row
     })
   }, [selectedTopics])
+
+  // ── 按所选维度（赞/评/藏/享）的数值分段折线：横轴分段一致，纵轴为落在该段的笔记篇数 ──
+  const intervalLineData = useMemo(() => {
+    if (selectedTopics.length < 1) return []
+    return METRIC_INTERVAL_BUCKETS.map(bucket => {
+      const row: Record<string, string | number> = {
+        interval: METRIC_BUCKET_LABELS[bucket],
+      }
+      selectedTopics.forEach((t, i) => {
+        row[`s${i}`] = countNotesInMetricBucket(toNotes(t), bucket, intervalMetric)
+      })
+      return row
+    })
+  }, [selectedTopics, intervalMetric])
+
+  const intervalMetricLabel = INTERVAL_METRIC_TABS.find(t => t.id === intervalMetric)?.label ?? '互动'
 
   return (
     <div className="space-y-6">
@@ -259,95 +352,107 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
         ))}
       </div>
 
-      {/* ── 图表区域：互动均值柱状 + 点赞区间分布（同一卡片）── */}
+      {/* ── 图表区域：雷达画像 + 互动区间折线（可切换维度）── */}
       <div className="rounded-2xl p-4 sm:p-6 border border-rose-100/50 bg-gradient-to-b from-white via-white to-rose-50/20 shadow-lg shadow-gray-200/40 space-y-8">
         <div>
-          <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">互动指标柱状对比</h4>
-          <p className="text-xs text-gray-400 mb-4">各主题平均点赞、评论、收藏、分享；悬停柱形查看完整主题名与数值</p>
-          <ResponsiveContainerAny width="100%" height={340}>
-            <BarChartAny data={barData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
-              <CartesianGridAny strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxisAny dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <TooltipAny content={<ChartTooltip />} />
-              <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>} />
-              {['点赞', '评论', '收藏', '分享'].map((key, i) => (
-                <BarAny
-                  key={key}
-                  dataKey={key}
-                  fill={COLORS[i % COLORS.length]}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={40}
-                />
-              ))}
-            </BarChartAny>
-          </ResponsiveContainerAny>
+          <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">互动画像（雷达）</h4>
+          <p className="text-xs text-gray-400 mb-4">
+            每条线为所选主题；四角为均赞、均评、均藏、均享在<strong className="text-gray-500">当前勾选组内</strong>的相对强度（最高=100）。绝对数值见上方卡片。
+          </p>
+          <div className="h-[min(400px,75vw)] min-h-[300px] w-full">
+            <ResponsiveContainerAny width="100%" height="100%">
+              <RadarChartAny cx="50%" cy="52%" outerRadius="72%" data={radarData}>
+                <PolarGridAny stroke="#e2e8f0" />
+                <PolarAngleAxisAny dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
+                <PolarRadiusAxisAny angle={45} domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <TooltipAny />
+                <LegendAny wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />
+                {selectedTopics.map((t, i) => (
+                  <RadarAny
+                    key={t.id}
+                    name={topicShortLabels[i] || t.name}
+                    dataKey={`s${i}`}
+                    stroke={COLORS[i % COLORS.length]}
+                    fill={COLORS[i % COLORS.length]}
+                    fillOpacity={0.2}
+                    strokeWidth={2}
+                  />
+                ))}
+              </RadarChartAny>
+            </ResponsiveContainerAny>
+          </div>
         </div>
 
         <div className="pt-6 border-t border-rose-100/60">
-          <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">笔记互动区间分布对比</h4>
-          <p className="text-xs text-gray-400 mb-4">各主题笔记按点赞数分段统计（0–100、101–500、…）</p>
-          <ResponsiveContainerAny width="100%" height={320}>
-            <BarChartAny data={notesDistributionData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
-              <CartesianGridAny strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxisAny dataKey="bucket" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }} />
-              <TooltipAny content={<ChartTooltip />} />
-              <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>} />
-              {selectedTopics.map((t, i) => (
-                <BarAny
-                  key={t.id}
-                  dataKey={t.name}
-                  fill={COLORS[i % COLORS.length]}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={30}
-                />
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+              <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">互动区间趋势（折线）</h4>
+              <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
+                按单条笔记的<strong className="text-gray-500">点赞 / 评论 / 收藏 / 分享</strong>计数落入同一套数值分段（0–100 … 5k+），纵轴为篇数；切换维度即可对比不同互动指标的分段分布。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <span className="text-[11px] text-gray-400 mr-0.5">维度</span>
+              {INTERVAL_METRIC_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setIntervalMetric(tab.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                    intervalMetric === tab.id
+                      ? 'bg-rose-500 text-white border-rose-500 shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-rose-200 hover:bg-rose-50/50'
+                  }`}
+                >
+                  {tab.label}
+                </button>
               ))}
-            </BarChartAny>
-          </ResponsiveContainerAny>
+            </div>
+          </div>
+          <div className="h-[320px] w-full min-h-[280px]">
+            <ResponsiveContainerAny width="100%" height="100%">
+              <LineChartAny data={intervalLineData} margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
+                <CartesianGridAny strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxisAny dataKey="interval" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxisAny tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                <TooltipAny
+                  content={({ active, label, payload }) => {
+                    if (!active || !payload?.length) return null
+                    return (
+                      <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-rose-100/60 p-3 text-xs min-w-[160px]">
+                        <p className="font-semibold text-gray-800 mb-2 border-b border-gray-100 pb-1.5">
+                          {intervalMetricLabel} {label}
+                        </p>
+                        {payload.map((e: any) => (
+                          <div key={e.dataKey} className="flex justify-between gap-6 text-gray-600 py-0.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: e.color }} />
+                              {e.name}
+                            </span>
+                            <span className="font-medium tabular-nums">{formatNumber(e.value)} 篇</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }}
+                />
+                <LegendAny wrapperStyle={{ fontSize: 11 }} />
+                {selectedTopics.map((t, i) => (
+                  <LineAny
+                    key={t.id}
+                    type="monotone"
+                    dataKey={`s${i}`}
+                    name={topicShortLabels[i] || t.name}
+                    stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3, strokeWidth: 1, fill: '#fff' }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChartAny>
+            </ResponsiveContainerAny>
+          </div>
         </div>
-      </div>
-
-      {/* ── 详细数据表格 ── */}
-      <div className="rounded-2xl p-4 sm:p-6 border border-gray-100/90 bg-white/95 shadow-md overflow-x-auto">
-        <h4 className="font-semibold text-gray-800 mb-4 text-sm tracking-tight">对比数据明细</h4>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left py-2 pr-4 text-gray-500 font-medium text-xs">主题</th>
-              <th className="text-right py-2 px-2 text-gray-500 font-medium text-xs">笔记数</th>
-              <th className="text-right py-2 px-2 text-gray-500 font-medium text-xs">均赞</th>
-              <th className="text-right py-2 px-2 text-gray-500 font-medium text-xs">均评</th>
-              <th className="text-right py-2 px-2 text-gray-500 font-medium text-xs">均藏</th>
-              <th className="text-right py-2 px-2 text-gray-500 font-medium text-xs">均分</th>
-              <th className="text-right py-2 pl-2 text-gray-500 font-medium text-xs">置信度</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selectedTopics.map((t, i) => (
-              <tr key={t.id} className="border-b border-gray-50 hover:bg-rose-50/30 transition-colors">
-                <td className="py-2.5 pr-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                    <span className="font-medium text-gray-700">{t.name}</span>
-                  </div>
-                </td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{formatNumber(t.noteCount)}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{formatNumber(t.avgLikes)}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{formatNumber(t.avgComments)}</td>
-                <td className="text-right py-2.5 px-2 text-gray-600">{formatNumber(t.avgCollects)}</td>
-                <td className="text-right py-2.5 pl-2 text-gray-600">{formatNumber(t.avgShares)}</td>
-                <td className="text-right py-2.5 pl-2">
-                  <span className={`font-medium ${
-                    t.avgConfidence > 0.7 ? 'text-green-600' : t.avgConfidence > 0.5 ? 'text-yellow-600' : 'text-red-500'
-                  }`}>
-                    {(t.avgConfidence * 100).toFixed(1)}%
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
       {/* ── 笔记详情弹窗 ── */}
@@ -399,7 +504,11 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
 export function ExportButton({ topics, notes, filename = 'topic-comparison' }: ExportButtonProps) {
   const [open, setOpen] = useState(false)
 
-  const handleExportCSV = (type: 'summary' | 'detail') => {
+  const handleExportCSV = (type: 'summary' | 'detail' | 'intervalMatrix') => {
+    if (topics.length === 0) {
+      setOpen(false)
+      return
+    }
     if (type === 'summary') {
       const data = topics.map(t => ({
         主题: t.name,
@@ -408,23 +517,42 @@ export function ExportButton({ topics, notes, filename = 'topic-comparison' }: E
         平均评论: Math.round(t.avgComments),
         平均收藏: Math.round(t.avgCollects),
         平均分享: Math.round(t.avgShares),
-        置信度: (t.avgConfidence * 100).toFixed(1) + '%',
+        置信度: `${(t.avgConfidence * 100).toFixed(1)}%`,
         关键词: t.keywords.join(' | '),
       }))
-      downloadCSV(data, `${filename}-摘要.csv`)
+      downloadCSV(data, exportCsvBasename(filename, '主题摘要'))
+    } else if (type === 'detail') {
+      const allNotes = topics.flatMap(t =>
+        toNotes(t).map(n => ({
+          主题: t.name,
+          笔记ID: n.id,
+          标题: n.title,
+          点赞: n.likes,
+          评论: n.comments,
+          收藏: n.collects,
+          分享: n.shares,
+          置信度: `${(n.confidence * 100).toFixed(1)}%`,
+          IP属地: n.ipLocation,
+        })),
+      )
+      downloadCSV(allNotes, exportCsvBasename(filename, '笔记明细'))
     } else {
-      const allNotes = topics.flatMap(t => toNotes(t).map(n => ({
-        主题: t.name,
-        笔记ID: n.id,
-        标题: n.title,
-        点赞: n.likes,
-        评论: n.comments,
-        收藏: n.collects,
-        分享: n.shares,
-        置信度: (n.confidence * 100).toFixed(1) + '%',
-        IP属地: n.ipLocation,
-      })))
-      downloadCSV(allNotes, `${filename}-笔记明细.csv`)
+      const rows: Record<string, string | number>[] = []
+      for (const t of topics) {
+        const noteList = toNotes(t)
+        for (const tab of INTERVAL_METRIC_TABS) {
+          for (const bucket of METRIC_INTERVAL_BUCKETS) {
+            rows.push({
+              主题: t.name,
+              笔记数: t.noteCount,
+              互动维度: tab.label,
+              数值区间: METRIC_BUCKET_LABELS[bucket],
+              该区间的笔记篇数: countNotesInMetricBucket(noteList, bucket, tab.id),
+            })
+          }
+        }
+      }
+      downloadCSV(rows, exportCsvBasename(filename, '互动区间汇总'))
     }
     setOpen(false)
   }
@@ -432,28 +560,63 @@ export function ExportButton({ topics, notes, filename = 'topic-comparison' }: E
   return (
     <div className="relative">
       <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-rose-500 border border-gray-200 hover:border-rose-300 rounded-lg transition-colors"
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-xl border transition-all ${
+          open
+            ? 'text-rose-600 border-rose-300 bg-rose-50/90 shadow-sm'
+            : 'text-gray-600 border-gray-200 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50/40'
+        }`}
       >
-        <Download className="w-4 h-4" />
-        导出
+        <Download className="w-4 h-4 shrink-0 opacity-90" aria-hidden />
+        导出 CSV
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
 
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-1 min-w-[160px]">
+          <div className="fixed inset-0 z-10" aria-hidden onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            className="absolute right-0 top-full mt-1.5 z-20 w-[min(100vw-2rem,17.5rem)] rounded-xl shadow-xl border border-rose-100/80 bg-white p-1.5 space-y-0.5"
+          >
             <button
+              type="button"
+              role="menuitem"
               onClick={() => handleExportCSV('summary')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
+              className="w-full flex gap-2.5 px-2.5 py-2.5 text-left rounded-lg hover:bg-rose-50/90 transition-colors"
             >
-              <span>📋</span> 导出主题摘要
+              <FileSpreadsheet className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" aria-hidden />
+              <span>
+                <span className="block text-sm font-medium text-gray-800">主题摘要</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">已选主题的笔记数、四维均值、置信度与关键词</span>
+              </span>
             </button>
             <button
-              onClick={() => handleExportCSV('detail')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
+              type="button"
+              role="menuitem"
+              onClick={() => handleExportCSV('intervalMatrix')}
+              className="w-full flex gap-2.5 px-2.5 py-2.5 text-left rounded-lg hover:bg-rose-50/90 transition-colors"
             >
-              <span>📄</span> 导出笔记明细
+              <Table2 className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" aria-hidden />
+              <span>
+                <span className="block text-sm font-medium text-gray-800">互动区间汇总</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">每主题 × 赞/评/藏/享 × 各数值分段篇数（与对比图一致）</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => handleExportCSV('detail')}
+              className="w-full flex gap-2.5 px-2.5 py-2.5 text-left rounded-lg hover:bg-rose-50/90 transition-colors"
+            >
+              <FileText className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" aria-hidden />
+              <span>
+                <span className="block text-sm font-medium text-gray-800">笔记明细</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">已选主题下全部笔记的行级互动与置信度</span>
+              </span>
             </button>
           </div>
         </>

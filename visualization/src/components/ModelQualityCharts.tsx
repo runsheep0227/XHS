@@ -15,8 +15,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Activity, Layers, PieChart as PieChartIcon, ShieldCheck, AlertTriangle } from 'lucide-react';
-import type { Topic, TopicRecord } from '../data/topicData';
+import { Activity, Layers, PieChart as PieChartIcon, ShieldCheck, AlertTriangle, Library, BarChart2 } from 'lucide-react';
+import type { Topic, TopicRecord, TopicStats } from '../data/topicData';
 import { EmptyState } from './common/States';
 import { formatNumber } from '../utils/responsive';
 
@@ -49,6 +49,212 @@ function quantile(sorted: number[], q: number): number {
 
 const HIST_BINS = 24;
 const PIE_COLORS = { normal: '#f43f5e', noise: '#94a3b8', track: '#e2e8f0' };
+
+function clusterConfidenceColor(c: number): string {
+  if (c >= 0.92) return '#16a34a';
+  if (c >= 0.85) return '#22c55e';
+  if (c >= 0.75) return '#84cc16';
+  if (c >= 0.65) return '#eab308';
+  return '#f97316';
+}
+
+export interface TopicStructureTrainingViewProps {
+  stats: TopicStats[];
+}
+
+/**
+ * 基于 topic_distribution_stats.csv：BERTopic 导出阶段对「微观簇」的 note_count 与簇级 confidence，
+ * 反映训练/映射管线输出的主题结构质量（非单条笔记的互动指标）。
+ */
+export function TopicStructureTrainingView({ stats }: TopicStructureTrainingViewProps) {
+  const filtered = useMemo(
+    () =>
+      stats.filter(
+        (s) => s.micro_topic_id >= 0 && !s.macro_topic.includes('噪声') && !s.macro_topic.toLowerCase().includes('outlier'),
+      ),
+    [stats],
+  );
+
+  const macroBars = useMemo(() => {
+    const m = new Map<string, { w: number; n: number }>();
+    for (const s of filtered) {
+      const cur = m.get(s.macro_topic) || { w: 0, n: 0 };
+      cur.w += s.confidence * s.note_count;
+      cur.n += s.note_count;
+      m.set(s.macro_topic, cur);
+    }
+    return [...m.entries()]
+      .map(([fullName, v]) => ({
+        fullName,
+        name: fullName.length > 8 ? `${fullName.slice(0, 8)}…` : fullName,
+        avgConf: v.n > 0 ? v.w / v.n : 0,
+        notes: v.n,
+        micros: filtered.filter((x) => x.macro_topic === fullName).length,
+      }))
+      .sort((a, b) => b.notes - a.notes);
+  }, [filtered]);
+
+  const microTop = useMemo(
+    () =>
+      [...filtered]
+        .sort((a, b) => b.note_count - a.note_count)
+        .slice(0, 28)
+        .map((s) => ({
+          key: `${s.macro_topic}-${s.micro_topic_id}`,
+          label: `T${s.micro_topic_id}`,
+          fullName: `${s.macro_topic} · 微观 ${s.micro_topic_id}`,
+          note_count: s.note_count,
+          confidence: s.confidence,
+        })),
+    [filtered],
+  );
+
+  const kpis = useMemo(() => {
+    if (!filtered.length) return null;
+    const totalN = filtered.reduce((s, x) => s + x.note_count, 0);
+    const w = filtered.reduce((s, x) => s + x.confidence * x.note_count, 0);
+    const avg = totalN > 0 ? w / totalN : 0;
+    const confs = filtered.map((x) => x.confidence);
+    const macroSet = new Set(filtered.map((x) => x.macro_topic));
+    return {
+      avg,
+      microN: filtered.length,
+      macroN: macroSet.size,
+      minC: Math.min(...confs),
+      maxC: Math.max(...confs),
+      totalN,
+    };
+  }, [filtered]);
+
+  if (!stats.length) {
+    return (
+      <EmptyState
+        type="data"
+        title="暂无训练侧主题统计"
+        description="请确认 content/bertopic_results_optimized 下存在 topic_distribution_stats.csv，并已重新运行开发服务。"
+      />
+    );
+  }
+
+  if (!filtered.length) {
+    return (
+      <EmptyState
+        type="data"
+        title="无有效微观簇行"
+        description="统计表内可能仅有噪声或离群行，请检查导出结果。"
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-800 tracking-tight flex items-center gap-2">
+          <Library className="w-5 h-5 text-indigo-500" aria-hidden />
+          主题簇统计（训练导出）
+        </h3>
+        <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
+          数据来自 <span className="font-mono text-[11px] text-gray-600">topic_distribution_stats.csv</span>
+          ：每个微观簇的文档数与<strong className="text-gray-600">簇级 confidence</strong>
+          （BERTopic/映射管线对各簇的代表性评分），用于评估<strong className="text-gray-600">模型划簇结果是否紧凑、可信</strong>
+          ，与笔记点赞等互动数据无关。
+        </p>
+      </div>
+
+      {kpis && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-br from-white to-indigo-50/50 p-4 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-indigo-600/80">簇级加权置信</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{(kpis.avg * 100).toFixed(1)}%</p>
+            <p className="mt-2 text-xs text-gray-500">按簇文档数加权</p>
+          </div>
+          <div className="rounded-2xl border border-slate-100/80 bg-gradient-to-br from-white to-slate-50/60 p-4 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-600/80">微观簇数量</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{formatNumber(kpis.microN)}</p>
+            <p className="mt-2 text-xs text-gray-500">有效 T&gt;0</p>
+          </div>
+          <div className="rounded-2xl border border-violet-100/80 bg-gradient-to-br from-white to-violet-50/40 p-4 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-violet-600/80">宏观类数</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-violet-900">{kpis.macroN}</p>
+            <p className="mt-2 text-xs text-gray-500">锚点映射类</p>
+          </div>
+          <div className="rounded-2xl border border-amber-100/80 bg-gradient-to-br from-white to-amber-50/40 p-4 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-amber-700/80">簇置信区间</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-gray-900">
+              {(kpis.minC * 100).toFixed(0)}% – {(kpis.maxC * 100).toFixed(0)}%
+            </p>
+            <p className="mt-2 text-xs text-gray-500">各微观簇极值</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="rounded-2xl border border-gray-100/90 bg-white/90 p-4 sm:p-5 shadow-lg shadow-gray-200/50">
+          <h4 className="text-sm font-semibold text-gray-800 mb-1 flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-indigo-500" aria-hidden />
+            各宏观类簇质量（加权平均簇置信度）
+          </h4>
+          <p className="text-xs text-gray-400 mb-4">对类内各微观簇按文档数加权平均；柱越高表示该宏观下簇划分越一致。</p>
+          <div className="h-[min(320px,50vh)] w-full min-h-[260px]">
+            <RC.ResponsiveContainer width="100%" height="100%">
+              <RC.BarChart data={macroBars} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
+                <RC.CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <RC.XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} angle={-22} textAnchor="end" height={56} interval={0} />
+                <RC.YAxis domain={[0, 1]} tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <RC.Tooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const r = payload[0].payload;
+                    return (
+                      <div className="rounded-xl border border-gray-100 bg-white/95 px-3 py-2 text-xs shadow-lg">
+                        <p className="font-semibold text-gray-800">{r.fullName}</p>
+                        <p className="text-gray-600 mt-1">加权簇置信 {(r.avgConf * 100).toFixed(1)}%</p>
+                        <p className="text-gray-500">文档 {formatNumber(r.notes)} · 微观簇 {r.micros} 个</p>
+                      </div>
+                    );
+                  }}
+                />
+                <RC.Bar dataKey="avgConf" fill="#6366f1" radius={[6, 6, 0, 0]} maxBarSize={40} name="簇置信" />
+              </RC.BarChart>
+            </RC.ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-100/90 bg-white/90 p-4 sm:p-5 shadow-lg shadow-gray-200/50">
+          <h4 className="text-sm font-semibold text-gray-800 mb-1">大规模微观簇（Top 按文档数）</h4>
+          <p className="text-xs text-gray-400 mb-4">条长为簇中文档数；颜色表示该簇代表置信度（绿高橙低）。</p>
+          <div className="w-full" style={{ height: Math.max(280, microTop.length * 28) }}>
+            <RC.ResponsiveContainer width="100%" height="100%">
+              <RC.BarChart layout="vertical" data={microTop} margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
+                <RC.CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <RC.XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+                <RC.YAxis type="category" dataKey="label" width={40} tick={{ fontSize: 11, fill: '#475569' }} />
+                <RC.Tooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const r = payload[0].payload;
+                    return (
+                      <div className="max-w-xs rounded-xl border border-gray-100 bg-white/95 px-3 py-2 text-xs shadow-lg">
+                        <p className="font-semibold text-gray-800">{r.fullName}</p>
+                        <p className="text-gray-600 mt-1">文档 {formatNumber(r.note_count)}</p>
+                        <p className="text-gray-600">簇置信 {(r.confidence * 100).toFixed(1)}%</p>
+                      </div>
+                    );
+                  }}
+                />
+                <RC.Bar dataKey="note_count" radius={[0, 6, 6, 0]} maxBarSize={22} name="文档数">
+                  {microTop.map((e) => (
+                    <RC.Cell key={e.key} fill={clusterConfidenceColor(e.confidence)} />
+                  ))}
+                </RC.Bar>
+              </RC.BarChart>
+            </RC.ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export interface ModelQualityDashboardProps {
   topics: Topic[];
@@ -163,10 +369,10 @@ export function ModelQualityDashboard({ topics, allRecords }: ModelQualityDashbo
         <div>
           <h3 className="text-lg font-semibold text-gray-800 tracking-tight flex items-center gap-2">
             <Layers className="w-5 h-5 text-rose-500" aria-hidden />
-            模型效果与置信度
+            样本推断诊断
           </h3>
           <p className="text-xs text-gray-500 mt-1 max-w-xl">
-            基于当前筛选主题的笔记集合：分布、累积分位与分主题指标。数据来自 BERTopic 与 CSV 中的置信度及噪声标注。
+            每条笔记在<strong className="text-gray-600">推断/映射阶段</strong>得到的样本级置信度（随左侧主题与筛选范围变化）。用于看长尾、噪声与分主题离散度；与「主题簇统计」页的簇级导出指标互补。
           </p>
         </div>
       </div>

@@ -13,31 +13,84 @@ import {
   Brain,
   Cloud,
   Layers,
+  LayoutDashboard,
+  LayoutGrid,
+  NotebookText,
+  Boxes,
+  Percent,
+  BadgeCheck,
 } from 'lucide-react';
 import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+} from 'recharts';
+import {
   loadTopicCSV,
+  loadTopicStats,
   aggregateTopics,
   buildIPDistribution,
   buildWordCloudEntriesForTopic,
   toNotes,
   Topic,
-  TopicDataLoadMeta,
   TopicRecord,
+  TopicStats,
 } from '../data/topicData';
 import { EmptyState } from '../components/common/States';
-import { ModelQualityDashboard } from '../components/ModelQualityCharts';
+import { ModelQualityDashboard, TopicStructureTrainingView } from '../components/ModelQualityCharts';
 import { formatNumber } from '../utils/responsive';
 import { CompareView } from '../components/InteractiveCharts';
 import { ChinaIPMapChart } from '../components/ChinaIPMapChart';
 import { RegionTopicMixChart } from '../components/RegionTopicMixChart';
 import { sameIpRegion } from '../utils/ipLocationMap';
 
-type ViewMode = 'bertopic' | 'confidence' | 'geo' | 'compare';
+const PieChartRC = PieChart as any;
+const PieRC = Pie as any;
+const CellRC = Cell as any;
+const ResponsiveContainerRC = ResponsiveContainer as any;
+const TooltipRC = Tooltip as any;
+const LegendRC = Legend as any;
+
+/** 与 content/bertopic_visualize.py 中 MACRO_ANCHORS 配色对齐 */
+const MACRO_ANCHOR_COLORS: Record<string, string> = {
+  AI内容创作: '#E74C3C',
+  'AI应用与测评': '#3498DB',
+  'AI学习教程': '#2ECC71',
+  'AI赋能工作生活': '#F39C12',
+  'AI社会反思': '#9B59B6',
+};
+
+const SUB_OVERVIEW_FALLBACK_COLORS = [
+  '#f43f5e',
+  '#8b5cf6',
+  '#06b6d4',
+  '#22c55e',
+  '#f59e0b',
+  '#ec4899',
+  '#14b8a6',
+  '#6366f1',
+  '#a855f7',
+];
+
+function isNoiseMacroLabel(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n.includes('噪声') || n.includes('outlier');
+}
+
+function isNoiseTopicRecord(r: TopicRecord): boolean {
+  if (r.is_noise === true) return true;
+  return isNoiseMacroLabel(r.macro_topic || '');
+}
+
+type ViewMode = 'bertopic' | 'topicStructure' | 'confidence' | 'geo' | 'compare';
 
 type MainModuleId = 'notes' | 'model';
 
 function mainModuleOf(mode: ViewMode): MainModuleId {
-  return mode === 'confidence' ? 'model' : 'notes';
+  return mode === 'topicStructure' || mode === 'confidence' ? 'model' : 'notes';
 }
 
 /** 笔记级内容搜索（不区分大小写）：标题、正文、分词、标签、关键词与宏观主题名 */
@@ -72,7 +125,7 @@ function excerptAroundQuery(text: string | undefined, q: string, radius = 56): s
 }
 
 export default function TopicAnalysis() {
-  const [viewMode, setViewMode] = useState<ViewMode>('geo');
+  const [viewMode, setViewMode] = useState<ViewMode>('bertopic');
   const [topics, setTopics] = useState<Topic[]>([]);
   const [allRecords, setAllRecords] = useState<TopicRecord[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
@@ -82,8 +135,7 @@ export default function TopicAnalysis() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [topicLoadMeta, setTopicLoadMeta] = useState<TopicDataLoadMeta | null>(null);
-
+  const [topicStats, setTopicStats] = useState<TopicStats[]>([]);
   // ─── 数据加载：loadTopicCSV 内已合并全部 rawdata JSON ───
   useEffect(() => {
     async function fetchData() {
@@ -101,17 +153,16 @@ export default function TopicAnalysis() {
           );
           setAllRecords([]);
           setTopics([]);
-          setTopicLoadMeta(meta ?? null);
+          setTopicStats(await loadTopicStats());
           return;
         }
 
         setAllRecords(topicRecords);
         setTopics(aggregateTopics(topicRecords));
-        setTopicLoadMeta(meta ?? null);
+        setTopicStats(await loadTopicStats());
       } catch (e) {
         console.error('[TopicAnalysis] 数据加载失败:', e);
         setLoadError('数据加载失败，请检查控制台错误信息。');
-        setTopicLoadMeta(null);
       } finally {
         setLoading(false);
       }
@@ -185,22 +236,25 @@ export default function TopicAnalysis() {
     {
       id: 'notes' as const,
       label: '笔记数据',
-      hint: '地域、对比与细分主题（BERTopic）结构',
+      hint: '细分主题、对比与地域分布',
       icon: BookOpen,
-      defaultTab: 'geo' as const,
+      defaultTab: 'bertopic' as const,
       tabs: [
-        { id: 'geo' as const, label: '地理分布', icon: MapPin },
-        { id: 'compare' as const, label: '主题对比', icon: GitCompare },
         { id: 'bertopic' as const, label: '细分主题', icon: Network },
+        { id: 'compare' as const, label: '主题对比', icon: GitCompare },
+        { id: 'geo' as const, label: '地理分布', icon: MapPin },
       ],
     },
     {
       id: 'model' as const,
       label: '模型效果',
-      hint: '归类置信度与误差诊断',
+      hint: '训练侧簇统计与样本推断诊断',
       icon: Brain,
-      defaultTab: 'confidence' as const,
-      tabs: [{ id: 'confidence' as const, label: '置信度分析', icon: Target }],
+      defaultTab: 'topicStructure' as const,
+      tabs: [
+        { id: 'topicStructure' as const, label: '主题簇统计', icon: Layers },
+        { id: 'confidence' as const, label: '推断诊断', icon: Target },
+      ],
     },
   ] as const;
 
@@ -466,7 +520,7 @@ export default function TopicAnalysis() {
             {(() => {
               const notesModule = mainModules[0];
               const modelModule = mainModules[1];
-              const isNotesContext = viewMode !== 'confidence';
+              const isNotesContext = viewMode !== 'confidence' && viewMode !== 'topicStructure';
               const subTabs = isNotesContext ? notesModule.tabs : modelModule.tabs;
               const subLabel = isNotesContext ? '笔记视图' : '模型视图';
               return (
@@ -521,13 +575,14 @@ export default function TopicAnalysis() {
               ) : (
                 <>
                   {viewMode === 'compare' && (
-                    <CompareView topics={filteredTopics} onBack={() => setViewMode('geo')} />
+                    <CompareView topics={filteredTopics} onBack={() => setViewMode('bertopic')} />
                   )}
                   {viewMode !== 'compare' && (
                     <>
                       {viewMode === 'bertopic' && (
-                        <SubTopicStructureView topics={filteredTopics} allRecords={allRecords} loadMeta={topicLoadMeta} />
+                        <SubTopicStructureView topics={filteredTopics} allRecords={allRecords} />
                       )}
+                      {viewMode === 'topicStructure' && <TopicStructureTrainingView stats={topicStats} />}
                       {viewMode === 'confidence' && (
                         <ModelQualityDashboard topics={filteredTopics} allRecords={allRecords} />
                       )}
@@ -684,6 +739,227 @@ function NoteSearchResults({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/** 数据概览：宏观分布环形图 + 有效样本覆盖率 + 指标卡 */
+function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; allRecords: TopicRecord[] }) {
+  const totalMicroTopics = useMemo(() => topics.reduce((s, t) => s + t.microTopics.length, 0), [topics]);
+  const macroTopicCount = useMemo(() => topics.filter((t) => !isNoiseMacroLabel(t.name)).length, [topics]);
+  const totalRecords = allRecords.length;
+  const avgConf = totalRecords > 0 ? allRecords.reduce((s, r) => s + r.confidence, 0) / totalRecords : 0;
+  const highConfN = useMemo(() => allRecords.filter((r) => r.confidence > 0.7).length, [allRecords]);
+
+  const macroPieData = useMemo(() => {
+    const validTopics = topics.filter((t) => !isNoiseMacroLabel(t.name));
+    const sum = validTopics.reduce((s, t) => s + t.noteCount, 0);
+    return validTopics.map((t, i) => ({
+      name: t.name,
+      value: t.noteCount,
+      fill: MACRO_ANCHOR_COLORS[t.name] ?? SUB_OVERVIEW_FALLBACK_COLORS[i % SUB_OVERVIEW_FALLBACK_COLORS.length],
+      pctLabel: sum > 0 ? ((t.noteCount / sum) * 100).toFixed(1) : '0.0',
+    }));
+  }, [topics]);
+
+  const coverageStats = useMemo(() => {
+    const noise = allRecords.filter(isNoiseTopicRecord).length;
+    const valid = Math.max(0, totalRecords - noise);
+    const pct = totalRecords > 0 ? (valid / totalRecords) * 100 : 0;
+    return { noise, valid, pct };
+  }, [allRecords, totalRecords]);
+
+  const coveragePie = useMemo(
+    () => [
+      { name: '有效样本', value: coverageStats.valid, fill: '#2ECC71' },
+      { name: '噪声等', value: Math.max(0, coverageStats.noise), fill: '#dfe6e9' },
+    ],
+    [coverageStats],
+  );
+
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+        <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-rose-50/20 p-4 sm:p-5 shadow-md">
+          <h4 className="font-semibold text-gray-800 text-sm mb-1">宏观主题分布</h4>
+          <p className="text-[11px] text-gray-400 mb-2">已排除宏观名称含「噪声」的类别；扇区大小为笔记篇数。</p>
+          {macroPieData.length === 0 ? (
+            <p className="text-sm text-gray-400 py-12 text-center">暂无有效宏观主题</p>
+          ) : (
+            <div className="h-[280px] w-full">
+              <ResponsiveContainerRC width="100%" height="100%">
+                <PieChartRC>
+                  <PieRC
+                    data={macroPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={56}
+                    outerRadius={92}
+                    paddingAngle={2}
+                  >
+                    {macroPieData.map((e) => (
+                      <CellRC key={e.name} fill={e.fill} />
+                    ))}
+                  </PieRC>
+                  <TooltipRC
+                    content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: typeof macroPieData[number] }> }) => {
+                      if (!active || !payload?.length) return null;
+                      const p = payload[0].payload;
+                      return (
+                        <div className="rounded-xl border border-rose-100/70 bg-white/95 shadow-lg px-3 py-2 text-xs">
+                          <div className="font-semibold text-gray-800">{p.name}</div>
+                          <div className="text-gray-600 mt-0.5">
+                            {formatNumber(p.value)} 篇（{p.pctLabel}%）
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <LegendRC wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+                </PieChartRC>
+              </ResponsiveContainerRC>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-slate-50/50 p-4 sm:p-5 shadow-md">
+          <h4 className="font-semibold text-gray-800 text-sm mb-1">数据覆盖率</h4>
+          <p className="text-[11px] text-gray-400 mb-2">
+            有效样本 = 非 <code className="text-[10px] bg-gray-50 px-0.5 rounded">is_noise</code> 且宏观名非噪声类。
+          </p>
+          <div className="relative h-[280px] w-full">
+            {totalRecords === 0 ? (
+              <p className="text-sm text-gray-400 py-12 text-center">暂无笔记行</p>
+            ) : (
+              <>
+                <ResponsiveContainerRC width="100%" height="100%">
+                  <PieChartRC>
+                    <PieRC
+                      data={coveragePie}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={72}
+                      outerRadius={96}
+                      stroke="#fff"
+                      strokeWidth={2}
+                    >
+                      {coveragePie.map((e) => (
+                        <CellRC key={e.name} fill={e.fill} />
+                      ))}
+                    </PieRC>
+                    <TooltipRC
+                      formatter={(v: number) => `${formatNumber(v)} 篇`}
+                      contentStyle={{ fontSize: 12, borderRadius: 12 }}
+                    />
+                    <LegendRC wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+                  </PieChartRC>
+                </ResponsiveContainerRC>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-3xl sm:text-4xl font-bold text-slate-700 tabular-nums">
+                      {coverageStats.pct.toFixed(1)}%
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">有效样本占比</div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          {totalRecords > 0 && (
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-xs text-gray-600 mt-2">
+              <span>
+                有效 <strong className="text-emerald-600 tabular-nums">{formatNumber(coverageStats.valid)}</strong> 篇
+              </span>
+              <span>
+                噪声等 <strong className="text-gray-500 tabular-nums">{formatNumber(coverageStats.noise)}</strong> 篇
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+        {(
+          [
+            {
+              label: '宏观主题',
+              hint: '已排除噪声类名',
+              value: String(macroTopicCount),
+              Icon: LayoutGrid,
+              ring: 'ring-rose-100/70',
+              iconClass: 'from-rose-500/25 to-pink-500/15 text-rose-600',
+              border: 'border-rose-200/45 hover:border-rose-300/60',
+            },
+            {
+              label: '笔记总数',
+              hint: '最终合并行数',
+              value: formatNumber(totalRecords),
+              Icon: NotebookText,
+              ring: 'ring-sky-100/80',
+              iconClass: 'from-sky-500/25 to-cyan-500/15 text-sky-600',
+              border: 'border-sky-200/40 hover:border-sky-300/55',
+            },
+            {
+              label: '微观主题',
+              hint: 'BERTopic 细分类数',
+              value: String(totalMicroTopics),
+              Icon: Boxes,
+              ring: 'ring-violet-100/80',
+              iconClass: 'from-violet-500/25 to-purple-500/15 text-violet-600',
+              border: 'border-violet-200/40 hover:border-violet-300/55',
+            },
+            {
+              label: '平均置信度',
+              hint: '映射置信度均值',
+              value: `${(avgConf * 100).toFixed(1)}%`,
+              Icon: Percent,
+              ring: 'ring-fuchsia-100/70',
+              iconClass: 'from-fuchsia-500/25 to-pink-500/15 text-fuchsia-600',
+              border: 'border-fuchsia-200/40 hover:border-fuchsia-300/55',
+              valueClass: 'text-fuchsia-700',
+            },
+            {
+              label: '高置信笔记',
+              hint: '置信度 > 0.7',
+              value: `${formatNumber(highConfN)} 篇`,
+              Icon: BadgeCheck,
+              ring: 'ring-emerald-100/80',
+              iconClass: 'from-emerald-500/25 to-teal-500/15 text-emerald-600',
+              border: 'border-emerald-200/40 hover:border-emerald-300/55',
+              valueClass: 'text-emerald-700',
+            },
+          ] as const
+        ).map((item) => {
+          const IconCmp = item.Icon;
+          return (
+          <div
+            key={item.label}
+            className={`group rounded-2xl border bg-gradient-to-br from-white via-white to-rose-50/20 p-4 shadow-md shadow-gray-200/30 transition-all duration-200 hover:shadow-lg hover:shadow-rose-100/25 ${item.border}`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`rounded-xl bg-gradient-to-br p-2.5 ring-1 ${item.ring} ${item.iconClass}`}
+              >
+                <IconCmp className="w-5 h-5" strokeWidth={2} aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{item.label}</p>
+                <p
+                  className={`text-xl sm:text-2xl font-bold tracking-tight tabular-nums mt-1 ${'valueClass' in item && item.valueClass ? item.valueClass : 'text-gray-900'}`}
+                >
+                  {item.value}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1.5 leading-snug">{item.hint}</p>
+              </div>
+            </div>
+          </div>
+        );
+        })}
+      </div>
     </div>
   );
 }
@@ -855,36 +1131,24 @@ function MacroMicroMergedCard({ topic, accent }: { topic: Topic; accent: string 
 function SubTopicStructureView({
   topics,
   allRecords,
-  loadMeta,
 }: {
   topics: Topic[];
   allRecords: TopicRecord[];
-  loadMeta: TopicDataLoadMeta | null;
 }) {
-  const [subView, setSubView] = useState<'micro' | 'data' | 'wordcloud'>('micro');
+  const [subView, setSubView] = useState<'micro' | 'data' | 'wordcloud'>('data');
   const CHART_COLORS = ['#f43f5e', '#ec4899', '#8b5cf6', '#06b6d4', '#22c55e', '#14b8a6', '#f59e0b', '#ef4444', '#6366f1', '#a855f7'];
-  const totalRecords = allRecords.length;
-  const totalMicroTopics = topics.reduce((s, t) => s + t.microTopics.length, 0);
-  const avgConf = totalRecords > 0
-    ? parseFloat((allRecords.reduce((s, r) => s + r.confidence, 0) / totalRecords).toFixed(3))
-    : 0;
-
-  const dataSourceHint = loadMeta
-    ? `数据来自仓库 content/：${loadMeta.bertopicRelativePath}，并与 rawdata/ 下 ${loadMeta.rawdataJsonFileCount} 个 JSON 合并（${loadMeta.rowsJoinedWithRaw}/${loadMeta.rowCount} 行已关联）。`
-    : '数据来自仓库 content/ 目录下的 BERTopic 导出表与 rawdata 原始笔记 JSON。';
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3 sm:mb-4">
         <div>
           <h3 className="text-base sm:text-lg font-semibold text-gray-700">细分主题结构</h3>
-          <p className="text-[11px] sm:text-xs text-gray-500 mt-1 max-w-3xl leading-relaxed">{dataSourceHint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {[
+            { id: 'data' as const, label: '数据概览', icon: LayoutDashboard },
             { id: 'micro' as const, label: '微观主题', icon: Layers },
             { id: 'wordcloud' as const, label: '词云', icon: Cloud },
-            { id: 'data' as const, label: '数据概览' },
           ].map((btn) => {
             const Icon = 'icon' in btn ? btn.icon : undefined;
             return (
@@ -904,62 +1168,30 @@ function SubTopicStructureView({
         </div>
       </div>
 
-      {subView === 'micro' && (
-        <div className="space-y-5 sm:space-y-6">
-          {topics.map((topic, i) => (
-            <MacroMicroMergedCard key={topic.id} topic={topic} accent={CHART_COLORS[i % CHART_COLORS.length]} />
-          ))}
-        </div>
-      )}
+      {subView === 'data' && <SubTopicPanoramaOverview topics={topics} allRecords={allRecords} />}
 
-      {subView === 'wordcloud' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {topics.map((topic, i) => (
-            <MacroWordCloudCard
-              key={topic.id}
-              title={topic.name}
-              color={CHART_COLORS[i % CHART_COLORS.length]}
-              entries={buildWordCloudEntriesForTopic(topic)}
-              noteCount={topic.noteCount}
-            />
-          ))}
-        </div>
-      )}
-
-      {subView === 'data' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <h4 className="font-semibold text-rose-600 mb-3 text-sm">数据规模</h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">宏观主题数</span>
-                <span className="text-gray-700 font-medium">{topics.length} 个</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">笔记总数</span>
-                <span className="text-gray-700 font-medium">{formatNumber(topics.reduce((s, t) => s + t.noteCount, 0))} 篇</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">微观主题数</span>
-                <span className="text-gray-700 font-medium">{totalMicroTopics} 个</span>
-              </div>
+      {(subView === 'micro' || subView === 'wordcloud') && (
+        <div key={subView} className="subtopic-chart-panel-enter">
+          {subView === 'micro' && (
+            <div className="space-y-5 sm:space-y-6">
+              {topics.map((topic, i) => (
+                <MacroMicroMergedCard key={topic.id} topic={topic} accent={CHART_COLORS[i % CHART_COLORS.length]} />
+              ))}
             </div>
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <h4 className="font-semibold text-pink-600 mb-3 text-sm">模型质量</h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">平均置信度</span>
-                <span className="text-gray-700 font-medium">{(avgConf * 100).toFixed(1)}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">高置信度(&gt;0.7)笔记</span>
-                <span className="text-gray-700 font-medium">
-                  {formatNumber(topics.reduce((s, t) => s + t.rawRecords.filter(r => r.confidence > 0.7).length, 0))} 篇
-                </span>
-              </div>
+          )}
+          {subView === 'wordcloud' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {topics.map((topic, i) => (
+                <MacroWordCloudCard
+                  key={topic.id}
+                  title={topic.name}
+                  color={CHART_COLORS[i % CHART_COLORS.length]}
+                  entries={buildWordCloudEntriesForTopic(topic)}
+                  noteCount={topic.noteCount}
+                />
+              ))}
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

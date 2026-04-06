@@ -3,6 +3,7 @@ import type {
   CommentAnalysis,
   CommentMetrics,
   CommentTopic,
+  NoteCommentLine,
   TopComment,
 } from './commentData'
 import type { EvaluationMetrics, RoBERTaConfig } from './commentData'
@@ -346,21 +347,30 @@ function topicContextLine(cr: TopicRecord | undefined): string | undefined {
   return parts.length ? parts.join(' · ') : undefined
 }
 
+function rowsToNoteCommentLines(rows: PredictedCommentRow[]): NoteCommentLine[] {
+  return rows.map((r, i) => ({
+    id: `${r.note_id}_${i}`,
+    user: r.nickname || '用户',
+    content: r.content || '',
+    sentiment: polarityToSentiment(r.sentiment_polarity),
+  }))
+}
+
 function rowsToTopComments(
   rows: PredictedCommentRow[],
   contentRec: TopicRecord | undefined,
-  max = 5,
+  max?: number,
 ): TopComment[] {
   const ctx = topicContextLine(contentRec)
-  const sorted = [...rows].slice(0, 80)
-  return sorted.slice(0, max).map((r, i) => ({
+  const list = max != null ? rows.slice(0, max) : rows
+  return list.map((r, i) => ({
     id: `${r.note_id}_${i}`,
     user: r.nickname || '用户',
-    content: r.content?.slice(0, 280) || '',
+    content: r.content || '',
     likes: 0,
     sentiment: polarityToSentiment(r.sentiment_polarity),
     createdAt: '',
-    noteTopicContext: ctx,
+    noteTopicContext: i === 0 ? ctx : undefined,
   }))
 }
 
@@ -560,11 +570,16 @@ export async function loadLiveCommentBundle(
     const fullCount = rankMap.get(a.noteId) ?? a.comments.length
     const cr = contentMap.get(a.noteId)
     const macro = cr?.macro_topic?.trim() || ''
+    const contentFull = (cr?.content || '').trim()
+    const descFull = (cr?.desc || '').trim()
     return {
       id: idx + 1,
       name: displayTitleFromContent(cr, a.noteId),
       noteId: a.noteId,
       noteUrl: cr?.note_url?.trim() || undefined,
+      noteContent: contentFull || undefined,
+      noteDesc: descFull || undefined,
+      noteComments: rowsToNoteCommentLines(a.comments),
       contentMacroTopic: macro || undefined,
       contentMatched: Boolean(cr),
       contentMicroTopicId: cr?.micro_topic_id,
@@ -591,6 +606,8 @@ export async function loadLiveCommentBundle(
     const fullCount = rankMap.get(a.noteId) ?? a.comments.length
     const cr = contentMap.get(a.noteId)
     const macro = cr?.macro_topic?.trim()
+    const contentFull = (cr?.content || '').trim()
+    const descFull = (cr?.desc || '').trim()
     return {
       id: `n_${a.noteId}`,
       noteId: a.noteId,
@@ -603,6 +620,8 @@ export async function loadLiveCommentBundle(
       contentMicroKeywords: cr?.micro_topic_keywords?.trim() || undefined,
       contentTopicKeywords: cr?.keywords?.trim() || undefined,
       contentMappingConfidence: cr?.confidence,
+      noteContent: contentFull || undefined,
+      noteDesc: descFull || undefined,
       sentiment: maj,
       sentimentScore: sentimentScore01(
         a.comments.reduce((s, c) => s + c.sentiment_polarity, 0) /
