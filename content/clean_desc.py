@@ -8,7 +8,7 @@ from collections import Counter
 import logging
 
 # ==================== 配置 ====================
-WORK_DIR = Path(r"E:\document\PG\studio\content")
+WORK_DIR = Path(__file__).resolve().parent
 INPUT_DIR = WORK_DIR / "rawdata"
 OUTPUT_FILE = WORK_DIR / "cleaned_desc.json"
 LOG_DIR = WORK_DIR / "logs"

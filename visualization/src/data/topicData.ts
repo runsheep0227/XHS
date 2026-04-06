@@ -1,11 +1,40 @@
 // ============================================================
 // 数据加载层
-// 支持从 content 目录读取真实 BERTopic 结果 + 原始笔记数据
-// 字段名映射：CSV 列名 → 可视化接口字段
+// 笔记主题页数据**仅**来自仓库 content/，开发态由 Vite 同源读盘提供：
+//   - content/bertopic_results_optimized/*.csv（主表 final_pro_topics）
+//   - content/rawdata/*.json（按 note_id 合并，补互动/标签/IP/类型）
+// 开发态：content / comment 均由 vite.config 挂在与前端相同的端口（默认 1306），请求使用同源 ''。
+// 生产构建若前后端不同源，可单独设置 VITE_CONTENT_SERVER 为数据接口根 URL（须自行托管相同路径）。
 // ============================================================
 
-// 内容服务器地址（与 vite.config.ts 端口一致）
-const CONTENT_SERVER = 'http://localhost:4173'
+function resolveContentServerBase(): string {
+  const v = import.meta.env.VITE_CONTENT_SERVER as string | undefined
+  if (v !== undefined && v.trim() !== '') {
+    return v.replace(/\/$/, '')
+  }
+  return ''
+}
+
+export const CONTENT_SERVER_BASE = resolveContentServerBase()
+
+const CONTENT_SERVER = CONTENT_SERVER_BASE
+
+/** 最近一次成功加载笔记主题数据时的来源说明（便于界面展示） */
+export interface TopicDataLoadMeta {
+  /** 实际请求的 BERTopic CSV 文件名 */
+  bertopicCsv: string
+  /** BERTopic CSV 在磁盘上的相对 content 根的路径 */
+  bertopicRelativePath: string
+  /** 扫描到的 rawdata JSON 文件个数 */
+  rawdataJsonFileCount: number
+  /** 合并去重后的原始笔记条数 */
+  rawNotesMerged: number
+  /** CSV 解析后的行数（与笔记条数一致） */
+  rowCount: number
+  /** 与 raw 成功拼上的笔记条数 */
+  rowsJoinedWithRaw: number
+  contentServer: string
+}
 
 // ============================================================
 // 接口定义
@@ -57,6 +86,8 @@ export interface TopicRecord {
   type?: 'normal' | 'video'   // 图文 / 视频
   source_keyword?: string      // 采集来源关键词
   image_count?: number         // 图片数量
+  /** BERTopic / CSV 噪声样本标记（final_pro_topics 等含 is_noise 列时） */
+  is_noise?: boolean
 }
 
 export interface Topic {
@@ -157,6 +188,14 @@ function parseNum(val: string | undefined, fallback = 0): number {
   return isNaN(n) ? fallback : n
 }
 
+function parseNoiseCell(val: string | undefined): boolean | undefined {
+  if (val === undefined || val === '') return undefined
+  const s = val.trim().toLowerCase()
+  if (['true', '1', 'yes'].includes(s)) return true
+  if (['false', '0', 'no'].includes(s)) return false
+  return undefined
+}
+
 // ============================================================
 // 文件清单获取
 // ============================================================
@@ -171,6 +210,36 @@ async function fetchManifest() {
   }
 }
 
+type Manifest = { rawdata: string[]; bertopic: string[] } | null
+
+/**
+ * 合并 content/rawdata 下全部 JSON（按 note_id 去重，后出现的文件覆盖先前的同 id，便于取较新抓取）
+ * @param manifest 若已拉过 __manifest__ 可传入，避免重复请求
+ */
+async function fetchAllRawNotesMap(manifest?: Manifest): Promise<{
+  map: Map<string, RawNote>
+  fileCount: number
+}> {
+  const m = manifest ?? (await fetchManifest())
+  const rawFiles = (m?.rawdata || []).filter((f) => f.endsWith('.json'))
+  const byId = new Map<string, RawNote>()
+  for (const file of rawFiles) {
+    try {
+      const resp = await fetch(`${CONTENT_SERVER}/rawdata/${encodeURIComponent(file)}`)
+      if (!resp.ok) continue
+      const chunk: unknown = await resp.json()
+      if (!Array.isArray(chunk)) continue
+      for (const item of chunk) {
+        const n = item as RawNote
+        if (n?.note_id) byId.set(String(n.note_id).trim(), n)
+      }
+    } catch {
+      console.warn(`[DataLoader] 跳过 raw 文件: ${file}`)
+    }
+  }
+  return { map: byId, fileCount: rawFiles.length }
+}
+
 // ============================================================
 // 数据加载（关联合并）
 // ============================================================
@@ -181,40 +250,38 @@ async function fetchManifest() {
  * - 字段映射：mapping_confidence → confidence
  * - 按 note_id 与 rawdata JSON 关联合并（补全 liked_count 等字段）
  */
-export async function loadTopicCSV(): Promise<TopicRecord[]> {
+export async function loadTopicCSV(): Promise<{
+  records: TopicRecord[]
+  meta: TopicDataLoadMeta | null
+}> {
   try {
     const manifest = await fetchManifest()
     const bertFiles = manifest?.bertopic || []
     // 优先加载 final_pro_topics.csv
     const targetCsv = bertFiles.find(f => f.includes('final_pro_topics')) || bertFiles[0]
-    if (!targetCsv) throw new Error('未找到 BERTopic CSV 文件')
+    if (!targetCsv){
+      console.error('[DataLoader] manifest 中无 BERTopic CSV，请确认 content/bertopic_results_optimized 下存在 csv 且已 npm run dev')
+      return { records: [], meta: null }
+    }
 
     const resp = await fetch(`${CONTENT_SERVER}/bertopic/${encodeURIComponent(targetCsv)}`)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const csvText = await resp.text()
     const rows = parseCSV(csvText)
 
-    // 加载原始笔记（用于关联合并互动数据）
-    const rawFiles = manifest?.rawdata || []
-    const rawFile = rawFiles.find(f => f.includes('search_contents')) || rawFiles[0]
-    let rawMap = new Map<string, RawNote>()
-
-    if (rawFile) {
-      try {
-        const rawResp = await fetch(`${CONTENT_SERVER}/rawdata/${encodeURIComponent(rawFile)}`)
-        if (rawResp.ok) {
-          const rawData: RawNote[] = await rawResp.json()
-          rawMap = new Map(rawData.map(n => [n.note_id, n]))
-        }
-      } catch (e) {
-        console.warn('[DataLoader] 加载原始笔记失败，将仅使用 CSV 数据：', e)
-      }
+    const { map: rawMap, fileCount: rawdataJsonFileCount } = await fetchAllRawNotesMap(manifest)
+    if (rawMap.size > 0) {
+      console.log(`[DataLoader] 已从 rawdata 合并 ${rawMap.size} 条原始笔记（${rawdataJsonFileCount} 个 JSON）`)
+    } else {
+      console.warn('[DataLoader] 未从 rawdata 加载到笔记，互动/标签/地理等依赖原始 JSON 的图表将为空')
     }
 
+    let rowsJoinedWithRaw = 0
     const records: TopicRecord[] = rows.map(row => {
       // 从 CSV 读取 BERTopic 分类结果
       const noteId: string = row['note_id'] || ''
       const raw = rawMap.get(noteId)
+      if (raw) rowsJoinedWithRaw += 1
 
       // 字段名映射
       const macro_topic: string = row['macro_topic_name'] || row['macro_topic'] || '未分类'
@@ -243,34 +310,41 @@ export async function loadTopicCSV(): Promise<TopicRecord[]> {
         tag_list: raw?.tag_list,
         note_url: raw?.note_url,
         nickname: raw?.nickname,
-        // ── 新增字段 ──
-        type: raw?.video_url ? 'video' : 'normal',
         source_keyword: raw?.source_keyword,
         image_count: raw?.image_list ? raw.image_list.split(',').filter(Boolean).length : 0,
+        type: raw
+          ? raw.video_url || String(raw.type || '') === 'video'
+            ? 'video'
+            : 'normal'
+          : undefined,
+        is_noise: parseNoiseCell(row['is_noise']),
       }
     })
 
-    console.log(`[DataLoader] 已加载 ${records.length} 条 BERTopic 记录`)
-    if (rawMap.size > 0) console.log(`[DataLoader] 已关联合并 ${rawMap.size} 条原始笔记数据`)
-    return records
+    const meta: TopicDataLoadMeta = {
+      bertopicCsv: targetCsv,
+      bertopicRelativePath: `bertopic_results_optimized/${targetCsv}`,
+      rawdataJsonFileCount,
+      rawNotesMerged: rawMap.size,
+      rowCount: records.length,
+      rowsJoinedWithRaw,
+      contentServer: CONTENT_SERVER,
+    }
+    console.log(
+      `[DataLoader] 主题数据仅来自 content/: ${meta.bertopicRelativePath} + rawdata/（${meta.rawdataJsonFileCount} 文件，${meta.rowsJoinedWithRaw}/${meta.rowCount} 行已关联合并）`,
+    )
+    return { records, meta }
 
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[DataLoader] loadTopicCSV 失败:', e)
-    return []
+    return { records: [], meta: null }
   }
 }
 
 export async function loadRawNotes(): Promise<RawNote[]> {
   try {
-    const manifest = await fetchManifest()
-    const rawFiles = manifest?.rawdata || []
-    const rawFile = rawFiles.find(f => f.includes('search_contents')) || rawFiles[0]
-    if (!rawFile) return []
-
-    const resp = await fetch(`${CONTENT_SERVER}/rawdata/${encodeURIComponent(rawFile)}`)
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const data: RawNote[] = await resp.json()
-    return data
+    const { map } = await fetchAllRawNotesMap()
+    return Array.from(map.values())
   } catch {
     return []
   }
@@ -296,7 +370,7 @@ export async function loadTopicStats(): Promise<TopicStats[]> {
   try {
     const manifest = await fetchManifest()
     const bertFiles = manifest?.bertopic || []
-    const statsFile = bertFiles.find(f => f.includes('topic_distribution_stats')) || bertFiles[1]
+    const statsFile = bertFiles.find((f) => f.includes('topic_distribution_stats'))
     if (!statsFile) return []
 
     const resp = await fetch(`${CONTENT_SERVER}/bertopic/${encodeURIComponent(statsFile)}`)
@@ -342,110 +416,43 @@ export function buildKeywordCloud(stats: TopicStats[]) {
     .sort((a, b) => b.weight - a.weight)
 }
 
-// ============================================================
-// 备用：当 content 目录不可用时使用内置主题配置
-// ============================================================
-
-const FALLBACK_MACRO_TOPICS = [
-  {
-    name: 'AI内容创作',
-    microTopics: [
-      { id: 1, name: 'AI绘画', keywords: ['绘画', 'Midjourney', 'Stable Diffusion', '即梦'], noteCount: 2520, avgLikes: 820, avgComments: 87, avgCollects: 210, avgShares: 65, avgConfidence: 0.65 },
-      { id: 2, name: 'AI视频', keywords: ['视频', 'Sora', '剪辑', '生成'], noteCount: 1840, avgLikes: 756, avgComments: 79, avgCollects: 195, avgShares: 58, avgConfidence: 0.71 },
-    ],
-  },
-  {
-    name: 'AI效率办公',
-    microTopics: [
-      { id: 10, name: 'AI写作', keywords: ['写作', 'ChatGPT', '文案', '润色'], noteCount: 2150, avgLikes: 698, avgComments: 72, avgCollects: 180, avgShares: 48, avgConfidence: 0.73 },
-      { id: 11, name: 'AI数据分析', keywords: ['Python', 'Excel', '数据', '分析'], noteCount: 1320, avgLikes: 612, avgComments: 65, avgCollects: 155, avgShares: 42, avgConfidence: 0.68 },
-    ],
-  },
-  {
-    name: 'AI学习教育',
-    microTopics: [
-      { id: 20, name: 'AI课程', keywords: ['教程', '课程', '学习', '免费'], noteCount: 1980, avgLikes: 534, avgComments: 58, avgCollects: 145, avgShares: 38, avgConfidence: 0.70 },
-      { id: 21, name: 'AI提示词', keywords: ['提示词', 'Prompt', '技巧', '工程'], noteCount: 1560, avgLikes: 487, avgComments: 54, avgCollects: 130, avgShares: 35, avgConfidence: 0.66 },
-    ],
-  },
-  {
-    name: 'AI工具测评',
-    microTopics: [
-      { id: 30, name: 'AI工具对比', keywords: ['测评', '对比', '推荐', '避坑'], noteCount: 1750, avgLikes: 645, avgComments: 68, avgCollects: 168, avgShares: 45, avgConfidence: 0.69 },
-    ],
-  },
-  {
-    name: 'AI赋能工作生活',
-    microTopics: [
-      { id: 40, name: 'AI副业', keywords: ['副业', '变现', '赚钱', '接单'], noteCount: 2100, avgLikes: 920, avgComments: 95, avgCollects: 245, avgShares: 72, avgConfidence: 0.74 },
-      { id: 41, name: 'AI职场', keywords: ['职场', '工作', '效率', '晋升'], noteCount: 1430, avgLikes: 578, avgComments: 62, avgCollects: 148, avgShares: 40, avgConfidence: 0.67 },
-    ],
-  },
-]
-
-function generateFallbackRecords(): TopicRecord[] {
-  const records: TopicRecord[] = []
-  const sampleTitles = [
-    '亲测好用！AI写作神器让我效率翻倍', 'Midjourney保姆级教程，新手必看',
-    'Stable Diffusion本地部署完整攻略', 'ChatGPT高级用法，效率提升10倍',
-    'AI头像生成也太好看了吧！', 'Notion AI太香了！知识管理神器',
-    'Copilot帮我写代码，太绝了', 'AI时代如何学习？这条路分享给你',
-    '用AI做副业，月入过万真实经历', '这些AI工具我真的离不开',
-  ]
-  const sampleContents = [
-    '最近开始用AI工具辅助工作，真的效率提升了好多！特别推荐这几个...',
-    '今天分享一个超好用的AI绘图工具，新手也能快速上手，附详细教程...',
-    '用了三个月ChatGPT，总结了一些高级用法和提示词技巧，收藏起来...',
-  ]
-  const ipLocations = ['北京', '上海', '广东', '浙江', '江苏', '四川', '湖北', '山东', '河南', '福建']
-  const nicknames = ['爱分享的CC', 'AI探索家', '效率达人', '科技控', '学习小能手', '创意无限']
-
-  let idx = 0
-  for (const macro of FALLBACK_MACRO_TOPICS) {
-    for (const micro of macro.microTopics) {
-      const batchSize = Math.max(5, Math.floor(micro.noteCount * 0.05))
-      for (let i = 0; i < batchSize; i++) {
-        const rid = `note_${String(idx++).padStart(6, '0')}`
-        records.push({
-          note_id: rid,
-          content: sampleContents[idx % sampleContents.length],
-          segmented_text: sampleContents[idx % sampleContents.length],
-          micro_topic_id: micro.id,
-          micro_topic_keywords: micro.keywords.join(','),
-          micro_topic_full_keywords: micro.keywords.join(','),
-          macro_topic: macro.name,
-          keywords: micro.keywords.join(','),
-          note_count: micro.noteCount,
-          confidence: micro.avgConfidence + (Math.random() * 0.1 - 0.05),
-          liked_count: micro.avgLikes + Math.floor(Math.random() * 200 - 100),
-          collected_count: micro.avgCollects + Math.floor(Math.random() * 80 - 40),
-          comment_count: micro.avgComments + Math.floor(Math.random() * 30 - 15),
-          share_count: micro.avgShares + Math.floor(Math.random() * 20 - 10),
-          title: sampleTitles[idx % sampleTitles.length],
-          desc: sampleContents[idx % sampleContents.length],
-          time: Date.now() - Math.floor(Math.random() * 60) * 86400000,
-          ip_location: ipLocations[idx % ipLocations.length],
-          tag_list: micro.keywords.slice(0, 3).join(','),
-          note_url: `https://www.xiaohongshu.com/explore/${rid}`,
-          nickname: nicknames[idx % nicknames.length],
-        })
-      }
+/** 无 topic_distribution_stats.csv 时，用 final_pro_topics 行内的微观主题词生成词云权重 */
+export function buildKeywordCloudFromRecords(records: TopicRecord[]) {
+  const freq = new Map<string, { weight: number; macro_topic: string }>()
+  for (const r of records) {
+    const macro = r.macro_topic || '未分类'
+    const conf = r.confidence || 0.5
+    const parts = (r.micro_topic_keywords || r.keywords || '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean)
+    for (const kw of parts) {
+      const w = Math.max(1, Math.round(conf * 10))
+      const prev = freq.get(kw) || { weight: 0, macro_topic: macro }
+      prev.weight += w
+      prev.macro_topic = macro
+      freq.set(kw, prev)
     }
   }
-  return records
+  return [...freq.entries()]
+    .map(([keyword, { weight, macro_topic }]) => ({
+      keyword,
+      macro_topic,
+      note_count: 1,
+      confidence: 0.5,
+      weight,
+    }))
+    .sort((a, b) => b.weight - a.weight)
 }
-
-const FALLBACK_RECORDS: TopicRecord[] = generateFallbackRecords()
 
 // ============================================================
 // 数据聚合
 // ============================================================
 
-export function aggregateTopics(_records?: TopicRecord[]): Topic[] {
-  const records = _records ?? FALLBACK_RECORDS
+export function aggregateTopics(records?: TopicRecord[]): Topic[] {
+  if (!records || records.length === 0) return []
 
-  // 如果记录为空（加载失败），使用备用数据
-  const data = records.length > 0 ? records : FALLBACK_RECORDS
+  const data = records
 
   const macroMap = new Map<string, TopicRecord[]>()
   for (const record of data) {
@@ -524,6 +531,35 @@ export function buildInteractionMatrix(topics: Topic[]) {
   }))
 }
 
+/**
+ * 为单个宏观主题生成词云用 (词, 权重) 列表。
+ * 逻辑对齐 content/bertopic_visualize.py 中 plot_wordclouds：对每个微观主题取前列关键词并累加权重（此处无 c-TF-IDF 数值，用位次递减 + 笔记量平方根作为近似）。
+ */
+export function buildWordCloudEntriesForTopic(topic: Topic): { name: string; value: number }[] {
+  const freq = new Map<string, number>()
+  const macroTop = 12
+  const microTop = 15
+
+  topic.keywords.slice(0, macroTop).forEach((kw, i) => {
+    const w = macroTop - i
+    freq.set(kw, (freq.get(kw) || 0) + w * 2.5)
+  })
+
+  for (const mt of topic.microTopics) {
+    const boost = Math.sqrt(Math.max(mt.noteCount, 1))
+    mt.keywords.slice(0, microTop).forEach((kw, i) => {
+      const w = (microTop - i) * boost
+      freq.set(kw, (freq.get(kw) || 0) + w)
+    })
+  }
+
+  return [...freq.entries()]
+    .map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 }))
+    .filter((e) => e.name.trim().length > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 72)
+}
+
 export function toNotes(records: TopicRecord[]): Note[] {
   return records.map(r => {
     const kwStr = r.micro_topic_full_keywords || r.micro_topic_keywords
@@ -554,12 +590,13 @@ export function toNotes(records: TopicRecord[]): Note[] {
 // 新增聚合函数
 // ============================================================
 
-/** 图文 vs 视频 内容类型分布 */
+/** 图文 vs 视频 内容类型分布（无 raw 合并得到 type 时返回空数组） */
 export function buildTypeDistribution(records: TopicRecord[]) {
-  const valid = records.filter(r => r.type !== undefined)
-  const total = valid.length || 1
-  const normal = valid.filter(r => r.type === 'normal').length
-  const video = valid.filter(r => r.type === 'video').length
+  const valid = records.filter((r) => r.type !== undefined)
+  if (valid.length === 0) return []
+  const total = valid.length
+  const normal = valid.filter((r) => r.type === 'normal').length
+  const video = valid.filter((r) => r.type === 'video').length
   return [
     { id: 'normal', name: '图文笔记', value: normal, color: '#f43f5e', pct: normal / total },
     { id: 'video', name: '视频笔记', value: video, color: '#8b5cf6', pct: video / total },

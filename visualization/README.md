@@ -1,14 +1,3 @@
----
-AIGC:
-    ContentProducer: Minimax Agent AI
-    ContentPropagator: Minimax Agent AI
-    Label: AIGC
-    ProduceID: "00000000000000000000000000000000"
-    PropagateID: "00000000000000000000000000000000"
-    ReservedCode1: 3045022100b3e116d6e7111c372fec9991be95995d7e49ce4a77159bb9873694a5489d42fe0220713f4d526df0e1314d3b7f1036a6e9aebc8e77e49772cef530796dec5cbac7bf
-    ReservedCode2: 3046022100fe549d949f7c911a593c3cebe543dd4d24e25a874dfb9f8166e31a554f3dc98f02210099f1dbe710b5feb8bdc05a704567164127d05816bca38ee363136166e2d36a4b
----
-
 # 小红书 AI 内容可视化分析仪表盘
 
 > 小红书 AI 内容主题分析 + 评论情感分类的可视化仪表盘
@@ -73,17 +62,7 @@ pnpm install
 pnpm run dev
 ```
 
-启动成功后看到：
-
-```
-  VITE v6.x.x  ready in xxx ms
-
-  ➜  Local:   http://localhost:1306/       ← 前端页面
-  ➜  Network: http://192.168.x.x:1306/
-
-  [Content Server] http://localhost:4173    ← 数据文件服务器
-  [Content Server] 托管目录: E:\document\PG\studio\content
-```
+启动成功后看到 Vite 监听 **http://localhost:1306**。同一端口还会提供 `content/`、`comment/` 的读盘 API（见控制台 `[vite] studio 数据已接入本端口…`）。
 
 直接打开 **http://localhost:1306** 即可使用。
 
@@ -109,9 +88,9 @@ pnpm run dev
 | `micro_topic_id` | `micro_topic_id` | 微观主题ID（直接使用）|
 | `content` | `content` | 笔记正文（直接使用）|
 
-### 备用数据
+### 笔记主题数据
 
-如果 `content` 目录不存在或数据加载失败，仪表盘会自动切换到**内置模拟数据**，页面仍可正常展示（数据为示例数据，非真实）。
+**笔记主题分析页**使用仓库 `content/` 下数据（`final_pro_topics.csv` 与 `rawdata/*.json`）。**评论分析页**使用仓库 `comment/` 下预测与统计结果，均由开发服务器同源提供，无需第二个端口。
 
 ---
 
@@ -131,11 +110,9 @@ pnpm run clean   # 清除构建缓存
 
 | 端口 | 用途 |
 |---|---|
-| **1306** | 前端页面（开发时访问 http://localhost:1306） |
-| **4173** | Content Server（自动启动，托管 `content` 目录供前端 fetch） |
+| **1306** | 前端 + `content/`、`comment/` 数据路由（开发默认，可在 `vite.config.ts` 修改 `DEV_PORT`） |
 
-> Content Server 仅在开发模式启动，生产构建时不会启动。  
-> 如果 1306 或 4173 端口被占用，可在 `vite.config.ts` 中修改。
+> 生产构建不再内置读盘服务；若需离线包，请自行部署能提供相同路径的静态服务或设置 `VITE_CONTENT_SERVER`。
 
 ---
 
@@ -152,8 +129,8 @@ pnpm run clean   # 清除构建缓存
 ### Q: 端口被占用
 **解决**：终止占用进程，或修改 `vite.config.ts` 中的 `port: 1306`。
 
-### Q: 启动后 Content Server 提示"目录不存在"
-**解决**：手动创建 `E:\document\PG\studio\content\` 目录，放入数据文件后重启。
+### Q: 控制台提示 content 或 comment 目录不存在
+**解决**：确认仓库结构与 `visualization` 平级的 `content/`、`comment/` 存在；路径相对于 `visualization` 上一级目录解析。
 
 ### Q: `pnpm install` 失败
 **解决**：清理缓存后重试

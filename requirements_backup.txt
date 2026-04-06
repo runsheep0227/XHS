@@ -1,115 +1,76 @@
-accelerate==1.12.0
-aiohappyeyeballs==2.6.1
-aiohttp==3.13.3
-aiosignal==1.4.0
-annotated-doc @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_annotated-doc_1762868213/work
-annotated-types==0.7.0
-anyio==4.12.1
-attrs==25.4.0
-backports.zstd @ file:///D:/bld/bld/rattler-build_backports.zstd_1767045012/work
-bertopic==0.17.4
-Brotli @ file:///D:/bld/brotli-split_1764017006836/work
-certifi==2026.1.4
-charset-normalizer==3.4.4
-click @ file:///D:/bld/bld/rattler-build_click_1764518654/work
-colorama @ file:///home/conda/feedstock_root/build_artifacts/colorama_1733218098505/work
-contourpy==1.3.3
-cycler==0.12.1
-datasets==4.5.0
-dill==0.4.0
-distro==1.9.0
-et_xmlfile==2.0.0
-evaluate==0.4.6
-exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1763918002538/work
-filelock==3.24.3
-fonttools==4.61.1
-frozenlist==1.8.0
-fsspec==2025.10.0
-gensim==4.4.0
-greenlet==3.3.2
-h11 @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_h11_1767729720/work
-h2 @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_h2_1756364871/work
-hdbscan==0.8.41
-hf-xet @ file:///D:/bld/bld/rattler-build_hf-xet_1773430467/work/hf_xet
-hpack @ file:///home/conda/feedstock_root/build_artifacts/hpack_1737618293087/work
-httpcore @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_httpcore_1745602916/work
-httpx @ file:///home/conda/feedstock_root/build_artifacts/httpx_1733663348460/work
-huggingface_hub @ file:///home/conda/feedstock_root/build_artifacts/huggingface_hub_1774459569050/work
-hyperframe @ file:///home/conda/feedstock_root/build_artifacts/hyperframe_1737618333194/work
-idna @ file:///home/conda/feedstock_root/build_artifacts/idna_1760286409563/work
-jieba==0.42.1
-Jinja2 @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_jinja2_1764517220/work
-jiter==0.13.0
-joblib==1.5.3
-kiwisolver==1.4.9
-llvmlite==0.46.0
-markdown-it-py==4.0.0
-MarkupSafe @ file:///D:/bld/markupsafe_1772444956616/work
-matplotlib==3.10.8
-mdurl==0.1.2
-mkl-service==2.5.2
-mkl_fft @ file:///C:/miniconda3/conda-bld/mkl_fft_1761592920106/work
-mkl_random @ file:///C:/miniconda3/conda-bld/mkl_random_1761593150425/work
-mpmath @ file:///home/conda/feedstock_root/build_artifacts/mpmath_1733302684489/work
-multidict==6.7.1
-multiprocess==0.70.18
-narwhals==2.17.0
-networkx @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_networkx_1765215107/work
-numba==0.64.0
-numpy==1.26.4
-openai==2.24.0
-openpyxl==3.1.5
-optree @ file:///D:/bld/optree_1771868165435/work
-packaging @ file:///C:/miniconda3/conda-bld/packaging_1761049096285/work
-pandas==3.0.1
-peft @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_peft_1768028093/work
-pillow==12.1.1
-playwright==1.58.0
-plotly==6.5.2
-propcache==0.4.1
-psutil @ file:///D:/bld/bld/rattler-build_psutil_1769678166/work
-pyarrow==23.0.1
-pybind11 @ file:///D:/bld/bld/rattler-build_pybind11_1755953378/work
-pybind11-global @ file:///D:/bld/bld/rattler-build_pybind11-global_1755953378/work
-pydantic==2.12.5
-pydantic_core==2.41.5
-pyee==13.0.1
-Pygments==2.19.2
-pynndescent==0.6.0
-pyparsing==3.3.2
-PySocks @ file:///D:/bld/pysocks_1733217287171/work
-python-dateutil==2.9.0.post0
-pytz==2026.1.post1
-PyYAML @ file:///D:/bld/pyyaml_1770223251282/work
-regex==2026.2.19
-requests==2.32.5
-rich==14.3.3
-safetensors @ file:///D:/bld/safetensors_1763569562911/work
-scikit-learn==1.8.0
-scipy==1.13.1
-seaborn==0.13.2
-sentence-transformers==5.2.3
-shellingham @ file:///home/conda/feedstock_root/build_artifacts/shellingham_1762858192781/work
-six==1.17.0
-smart_open==7.5.1
-sniffio==1.3.1
-sympy==1.14.0
-threadpoolctl==3.6.0
-tokenizers @ file:///D:/bld/tokenizers_1764694778332/work/bindings/python
-torch==2.12.0.dev20260330+cu128
-torchaudio==2.11.0.dev20260329+cu128
-torchvision==0.26.0.dev20260329+cu128
-tqdm @ file:///D:/bld/bld/rattler-build_tqdm_1770153445/work
-transformers==5.2.0
-typer==0.24.0
-typer-slim==0.24.0
-typing-inspection==0.4.2
-typing_extensions==4.15.0
-tzdata==2025.3
-umap-learn==0.5.11
-urllib3 @ file:///home/conda/feedstock_root/build_artifacts/urllib3_1767817748113/work
-win_inet_pton @ file:///D:/bld/win_inet_pton_1733130564612/work
-wordcloud==1.9.6
-wrapt==2.1.1
-xxhash==3.6.0
-yarl==1.22.0
+# =============================================================================
+# Studio 项目 Python 依赖（可移植备份清单）
+# =============================================================================
+#
+# 【使用方式】
+# A）仅用 pip：先安装 PyTorch（见下方链接），再执行
+#    pip install -r requirements_backup.txt
+# B）用 Conda（推荐与本仓库 environment.yml 一起用）：在仓库根目录执行
+#    conda env create -f environment.yml
+#    其中已通过 conda 安装 CPU 版 PyTorch，本文件由 yml 的 pip 段自动安装。
+# C）若仅跑 comment 或 content 子项目，可只装对应段落中的包（见文末分组）。
+#
+# 【PyTorch 官方安装命令】
+# https://pytorch.org/get-started/locally/
+# 纯 CPU 示例：
+#    pip install torch torchvision torchaudio
+# CUDA 12.x 示例（以官网当前命令为准）：
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+#
+# 【说明】
+# - 本文件替代原先 conda/pip freeze 中带 file:// 的条目，保证 pip 可从 PyPI 拉取。
+# - 版本号在「可安装」与「与当前代码兼容」之间折中；若需严格复现某次实验，可在新环境中
+#   pip freeze > requirements-lock.txt 再单独存档。
+# - 未将 torch 写入本列表，避免与 CUDA 变体冲突；请务必先装 torch 再装 transformers 等。
+# =============================================================================
+
+# --- 数值、表格与通用工具 ---
+numpy>=1.26.4,<2.3
+pandas>=2.2.0,<3.2
+scipy>=1.11.0,<1.15
+tqdm>=4.66.0
+
+# --- 机器学习 / 传统 ML ---
+scikit-learn>=1.5.0,<1.9
+
+# --- HuggingFace：评论情感微调、推理、评估（comment/）---
+# 依赖 torch（需预先安装）。accelerate 为 Trainer 常用可选加速项。
+transformers>=4.44.0,<5.3
+datasets>=3.0.0,<5.6
+accelerate>=0.34.0,<1.13
+safetensors>=0.4.0
+
+# --- 大模型标注 OpenAI 兼容 API（comment/llm_annotate.py）---
+openai>=1.40.0,<3
+
+# --- 可视化（comment/evaluate_model.py、content/bertopic_visualize.py）---
+matplotlib>=3.8.0,<3.12
+seaborn>=0.13.0,<0.14
+
+# --- 中文分词（content/clean_data.py）---
+jieba>=0.42.1
+
+# --- 主题建模链路（content/：bertopic_train.py、predict.py、bertopic_visualize.py）---
+bertopic>=0.16.0,<0.18
+sentence-transformers>=3.0.0,<5.3
+umap-learn>=0.5.6,<0.6
+hdbscan>=0.8.33,<0.9
+
+# --- 可选：bertopic_visualize 词云图（未安装则跳过图 10）---
+wordcloud>=1.9.3,<1.11
+
+# =============================================================================
+# 以下为「分组速查」（内容与本文件上文重复，勿与 pip -r 同时使用；仅作说明）
+# =============================================================================
+# [comment 最小集]
+#   numpy pandas scipy tqdm scikit-learn torch(transformers官网先装)
+#   transformers datasets accelerate safetensors openai matplotlib seaborn
+#
+# [content 最小集]
+#   numpy pandas scipy tqdm scikit-learn torch(transformers官网先装)
+#   jieba matplotlib seaborn bertopic sentence-transformers umap-learn hdbscan
+#   wordcloud（可选）
+#
+# [本项目未在 .py 中直接 import、freeze 里曾出现的环境遗留包]
+#   playwright、plotly、openpyxl、gensim、evaluate、peft 等可按需自行加入，非跑通 comment/content 主流程所必需。
+# =============================================================================

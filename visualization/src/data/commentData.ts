@@ -2,9 +2,22 @@
 export interface CommentAnalysis {
   id: string;
   noteId: string;
+  /** 与 content/rawdata 合并得到的 note_url，无则前端可按 noteId 拼 explore */
+  noteUrl?: string;
   noteTitle: string;
   topicId: number;
+  /** 与 content/BERTopic 关联的宏观主题；无匹配时为说明文案 */
   topicName: string;
+  /** 是否在 content 主题数据中命中该 note_id */
+  contentMatched?: boolean;
+  /** content BERTopic 微观主题 ID */
+  contentMicroTopicId?: number;
+  /** 微观主题关键词 */
+  contentMicroKeywords?: string;
+  /** CSV 笔记关键词列 */
+  contentTopicKeywords?: string;
+  /** 主题映射置信度 */
+  contentMappingConfidence?: number;
   sentiment: 'positive' | 'neutral' | 'negative';
   sentimentScore: number; // 0-1, 越高越积极
   keywords: string[];
@@ -20,11 +33,25 @@ export interface TopComment {
   likes: number;
   sentiment: 'positive' | 'neutral' | 'negative';
   createdAt: string;
+  /** 该评论所属笔记在 content/BERTopic 下的主题摘要，便于对照阅读 */
+  noteTopicContext?: string;
 }
 
 export interface CommentTopic {
   id: number;
+  /** 展示名：优先为笔记标题，否则为截断 note_id */
   name: string;
+  /** 原始笔记 ID，与 content/rawdata、BERTopic 对齐 */
+  noteId?: string;
+  /** 笔记页链接（来自 content/rawdata 与 CSV 合并后的 note_url，可打开原帖/评论区） */
+  noteUrl?: string;
+  /** content 侧宏观主题（BERTopic） */
+  contentMacroTopic?: string;
+  /** 是否在 content 主题表中命中 */
+  contentMatched?: boolean;
+  contentMicroTopicId?: number;
+  contentMicroKeywords?: string;
+  contentMappingConfidence?: number;
   commentCount: number;
   keywords: string[];
   positiveRatio: number;
@@ -229,7 +256,9 @@ export const mockCommentWordCloud = [
 
 // 模型配置信息
 export interface RoBERTaConfig {
+  /** 卡面常用中文/英文全称，便于读者对照论文与模型卡 */
   modelName: string;
+  /** Hugging Face 预训练权重仓库 ID（与本仓库加载的基座一致） */
   baseModel: string;
   numLabels: number;
   maxLength: number;
@@ -243,8 +272,9 @@ export interface RoBERTaConfig {
 }
 
 export const robertaConfig: RoBERTaConfig = {
-  modelName: "chinese-roberta-wwm-ext",
-  baseModel: "hfl/chinese-roberta-wwm-ext",
+  modelName:
+    "Chinese MacBERT-large（与 comment/train_roberta.py 默认 DEFAULT_MODEL_NAME 一致）",
+  baseModel: "hfl/chinese-macbert-large",
   numLabels: 3,
   maxLength: 256,
   batchSize: 16,

@@ -1,0 +1,44 @@
+# =============================================================================
+# Studio 项目 Conda 环境（与 requirements_backup.txt 配套）
+# =============================================================================
+#
+# 在仓库根目录（本文件与 requirements_backup.txt 同级）执行：
+#
+#   conda env create -f environment.yml
+#   conda activate studio
+#
+# 更新已有环境（改动了 yml 或 pip 依赖时）：
+#
+#   conda env update -f environment.yml --prune
+#
+# =============================================================================
+# GPU 说明
+# - 默认安装 CPU 版 PyTorch（cpuonly），任意机器可解环境。
+# - 若要用 NVIDIA GPU：删掉依赖里的 cpuonly，并取消下面「GPU 示例」三行的注释，
+#   同时把 pytorch-cuda= 改成与你驱动匹配的版本（以 https://pytorch.org/ 为准）。
+# =============================================================================
+
+name: studio
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pip
+
+  # ----- PyTorch（conda；优先于 pip 装 torch，减少与 CUDA 二进制混搭问题）-----
+  - pytorch>=2.2.0,<2.6
+  - torchvision>=0.17.0
+  - torchaudio>=2.2.0
+  - cpuonly
+
+  # GPU 示例：删除 cpuonly，并取消注释下面一行（版本号以 https://pytorch.org/ 为准）
+  # - pytorch-cuda=12.4
+
+  # ----- 其余 Python 包：走 pip + 项目备份清单（不含 torch）-----
+  - pip:
+      - -r requirements_backup.txt

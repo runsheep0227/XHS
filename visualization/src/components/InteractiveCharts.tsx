@@ -2,10 +2,9 @@
 import React, { useState, useMemo, useRef } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer
 } from 'recharts'
-import { Download, X, CheckSquare, Square, ChevronDown, ChevronUp, SlidersHorizontal, Info } from 'lucide-react'
+import { Download, X, CheckSquare, Square, Info } from 'lucide-react'
 import { Topic, TopicRecord, Note } from '../data/topicData'
 import { formatNumber } from '../utils/responsive'
 
@@ -17,11 +16,6 @@ const TooltipAny = Tooltip as any
 const LegendAny = Legend as any
 const BarChartAny = BarChart as any
 const BarAny = Bar as any
-const RadarChartAny = RadarChart as any
-const RadarAny = Radar as any
-const PolarGridAny = PolarGrid as any
-const PolarAngleAxisAny = PolarAngleAxis as any
-const PolarRadiusAxisAny = PolarRadiusAxis as any
 const ResponsiveContainerAny = ResponsiveContainer as any
 
 // ================================================================
@@ -30,21 +24,7 @@ const ResponsiveContainerAny = ResponsiveContainer as any
 
 interface CompareViewProps {
   topics: Topic[]
-  allRecords: Topic[]
   onBack: () => void
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any
-}
-
-interface MetricFilterProps {
-  minLikes: number
-  maxLikes: number
-  minComments: number
-  maxComments: number
-  minCollects: number
-  maxCollects: number
-  onChange: (key: string, value: [number, number]) => void
-  maxValues: { likes: number; comments: number; collects: number }
 }
 
 interface ExportButtonProps {
@@ -56,6 +36,21 @@ interface ExportButtonProps {
 // ================================================================
 // 工具函数
 // ================================================================
+
+/** BERTopic 噪声/离群主题，默认不参与对比勾选 */
+function isNoiseTopicName(name: string): boolean {
+  const n = name.trim().toLowerCase()
+  return n.includes('噪声') || n.includes('outlier')
+}
+
+/** 默认勾选前 5 个非噪声主题（不足 5 个则全选非噪声；无非噪声时退回前若干个以保证至少 1 个） */
+function defaultCompareSelection(topics: Topic[]): Set<number> {
+  const nonNoise = topics.filter((t) => !isNoiseTopicName(t.name))
+  const picked = nonNoise.slice(0, 5)
+  if (picked.length > 0) return new Set(picked.map((t) => t.id))
+  const fallback = topics.slice(0, Math.min(5, topics.length))
+  return new Set(fallback.map((t) => t.id))
+}
 
 function toNotes(topic: Topic): Note[] {
   return topic.rawRecords.map((r) => ({
@@ -102,124 +97,16 @@ function downloadCSV(data: Record<string, any>[], filename: string) {
 }
 
 // ================================================================
-// 指标区间过滤器
-// ================================================================
-
-export function MetricFilterPanel({ minLikes, maxLikes, minComments, maxComments, minCollects, maxCollects, onChange, maxValues }: MetricFilterProps) {
-  const [expanded, setExpanded] = useState(false)
-
-  const metrics = [
-    { key: 'likes', label: '平均点赞', min: minLikes, max: maxLikes, step: Math.max(1, Math.floor(maxValues.likes / 50)) },
-    { key: 'comments', label: '平均评论', min: minComments, max: maxComments, step: Math.max(1, Math.floor(maxValues.comments / 50)) },
-    { key: 'collects', label: '平均收藏', min: minCollects, max: maxCollects, step: Math.max(1, Math.floor(maxValues.collects / 50)) },
-  ]
-
-  return (
-    <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
-      {/* 折叠头部 */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <SlidersHorizontal className="w-4 h-4 text-rose-500" />
-          <span className="font-medium text-gray-700 text-sm">指标区间过滤</span>
-          {(minLikes > 0 || maxLikes < maxValues.likes || minComments > 0 || maxComments < maxValues.comments || minCollects > 0 || maxCollects < maxValues.collects) && (
-            <span className="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-xs rounded-full font-medium">已设置</span>
-          )}
-        </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-      </button>
-
-      {/* 展开内容 */}
-      {expanded && (
-        <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-3">
-          {metrics.map(m => (
-            <div key={m.key}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-gray-600">{m.label}</span>
-                <span className="text-xs text-rose-500 font-medium">
-                  {formatNumber(m.min)} ~ {formatNumber(m.max)}
-                </span>
-              </div>
-              {/* 双滑块 */}
-              <div className="relative h-6 flex items-center">
-                <input
-                  type="range"
-                  min={0}
-                  max={maxValues[m.key as 'likes' | 'comments' | 'collects']}
-                  step={m.step}
-                  value={m.min}
-                  onChange={e => {
-                    const val = Math.min(parseInt(e.target.value), m.max - m.step)
-                    onChange(`${m.key}Min` as any, [val, m.max])
-                  }}
-                  className="absolute w-full appearance-none bg-transparent pointer-events-none z-10
-                    [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
-                    [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
-                    [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-rose-500
-                    [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                    [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-125"
-                  style={{ accentColor: '#f43f5e' }}
-                />
-                <input
-                  type="range"
-                  min={0}
-                  max={maxValues[m.key as 'likes' | 'comments' | 'collects']}
-                  step={m.step}
-                  value={m.max}
-                  onChange={e => {
-                    const val = Math.max(parseInt(e.target.value), m.min + m.step)
-                    onChange(`${m.key}Max` as any, [m.min, val])
-                  }}
-                  className="absolute w-full appearance-none bg-transparent pointer-events-none z-20
-                    [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
-                    [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
-                    [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-rose-500
-                    [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                    [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-125"
-                  style={{ accentColor: '#f43f5e' }}
-                />
-                {/* 轨道背景 */}
-                <div className="absolute w-full h-1.5 bg-gray-200 rounded-full" />
-                {/* 已选轨道 */}
-                <div
-                  className="absolute h-1.5 bg-rose-400 rounded-full"
-                  style={{
-                    left: `${(m.min / maxValues[m.key as 'likes' | 'comments' | 'collects']) * 100}%`,
-                    right: `${100 - (m.max / maxValues[m.key as 'likes' | 'comments' | 'collects']) * 100}%`,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-
-          {/* 重置按钮 */}
-          <button
-            onClick={() => {
-              onChange('likesMin' as any, [0, maxValues.likes])
-              onChange('commentsMin' as any, [0, maxValues.comments])
-              onChange('collectsMin' as any, [0, maxValues.collects])
-            }}
-            className="w-full py-1.5 text-xs text-gray-400 hover:text-rose-500 border border-gray-200 rounded-lg transition-colors"
-          >
-            重置所有过滤条件
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ================================================================
 // 悬停详情气泡
 // ================================================================
 
 export function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
   if (!active || !payload?.length) return null
+  const row0 = payload[0]?.payload as { fullName?: string; name?: string } | undefined
+  const title = row0?.fullName || row0?.name || label
   return (
-    <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-100 p-3 min-w-[160px]">
-      <p className="font-semibold text-gray-700 text-sm mb-2">{label}</p>
+    <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-rose-100/60 p-3 min-w-[160px] shadow-rose-100/30">
+      <p className="font-semibold text-gray-800 text-sm mb-2 leading-snug">{title}</p>
       {payload.map((entry, i) => (
         <div key={i} className="flex items-center justify-between gap-3 text-xs mb-1">
           <div className="flex items-center gap-1.5">
@@ -237,9 +124,8 @@ export function ChartTooltip({ active, payload, label }: { active?: boolean; pay
 // 主题对比视图
 // ================================================================
 
-export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
-  const [selected, setSelected] = useState<Set<number>>(new Set(topics.slice(0, Math.min(4, topics.length)).map(t => t.id)))
-  const [compareMode, setCompareMode] = useState<'radar' | 'bar' | 'trend'>('radar')
+export function CompareView({ topics, onBack }: CompareViewProps) {
+  const [selected, setSelected] = useState<Set<number>>(() => defaultCompareSelection(topics))
   const [showNoteModal, setShowNoteModal] = useState<{ topic: Topic; notes: Note[] } | null>(null)
 
   const selectedTopics = topics.filter(t => selected.has(t.id))
@@ -254,24 +140,6 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
     }
     setSelected(next)
   }
-
-  // ── 雷达图数据 ──
-  const radarData = useMemo(() => {
-    const metrics = ['平均点赞', '平均评论', '平均收藏', '平均分享', '置信度']
-    return metrics.map(metric => {
-      const entry: Record<string, any> = { metric }
-      selectedTopics.forEach(t => {
-        switch (metric) {
-          case '平均点赞': entry[t.name] = Math.round(t.avgLikes); break
-          case '平均评论': entry[t.name] = Math.round(t.avgComments); break
-          case '平均收藏': entry[t.name] = Math.round(t.avgCollects); break
-          case '平均分享': entry[t.name] = Math.round(t.avgShares); break
-          case '置信度': entry[t.name] = parseFloat((t.avgConfidence * 100).toFixed(1)); break
-        }
-      })
-      return entry
-    })
-  }, [selectedTopics])
 
   // ── 柱状图数据 ──
   const barData = useMemo(() => {
@@ -288,7 +156,7 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
 
   // ── 笔记级对比数据（按点赞分段）──
   const notesDistributionData = useMemo(() => {
-    if (selectedTopics.length < 2) return []
+    if (selectedTopics.length < 1) return []
     const buckets = ['0-100', '101-500', '501-1k', '1k-5k', '5k+']
     return buckets.map(bucket => {
       const entry: Record<string, any> = { bucket }
@@ -317,30 +185,8 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
             <span className="text-2xl">⚡</span>
             主题对比模式
           </h3>
-          <p className="text-xs text-gray-400 mt-0.5">勾选 2~6 个主题进行横向对比，按 Ctrl/Cmd 可多选</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* 图表类型切换 */}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            {[
-              { id: 'radar', label: '雷达图', icon: '🕸️' },
-              { id: 'bar', label: '柱状图', icon: '📊' },
-              { id: 'trend', label: '笔记分布', icon: '📈' },
-            ].map(btn => (
-              <button
-                key={btn.id}
-                onClick={() => setCompareMode(btn.id as typeof compareMode)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  compareMode === btn.id ? 'bg-white shadow-sm text-rose-600' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <span>{btn.icon}</span>
-                <span className="hidden sm:inline">{btn.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* 导出按钮 */}
           <ExportButton topics={selectedTopics} />
 
           <button
@@ -354,9 +200,9 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
       </div>
 
       {/* ── 主题勾选列表 ── */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-        <p className="text-xs font-medium text-gray-500 mb-3 flex items-center gap-1">
-          <Info className="w-3.5 h-3.5" />
+      <div className="rounded-2xl p-4 border border-rose-100/60 bg-gradient-to-br from-white to-rose-50/30 shadow-md shadow-rose-100/20">
+        <p className="text-xs font-medium text-gray-600 mb-3 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-rose-400" />
           点击卡片勾选主题（最多 6 个）
         </p>
         <div className="flex flex-wrap gap-2">
@@ -368,8 +214,8 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
                 onClick={() => toggleTopic(topic.id)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all border-2 ${
                   isSel
-                    ? 'bg-rose-50 border-rose-400 text-rose-600 shadow-sm'
-                    : 'bg-gray-50 border-transparent text-gray-500 hover:bg-gray-100'
+                    ? 'bg-gradient-to-r from-rose-50 to-pink-50 border-rose-400 text-rose-700 shadow-md shadow-rose-100/50 ring-1 ring-rose-100/60'
+                    : 'bg-white/80 border-gray-100 text-gray-500 hover:border-rose-200 hover:bg-rose-50/40'
                 }`}
               >
                 {isSel
@@ -391,8 +237,8 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
         {selectedTopics.map((t, i) => (
           <div
             key={t.id}
-            className="rounded-xl p-3 border-2 cursor-pointer transition-all hover:shadow-md"
-            style={{ borderColor: COLORS[i % COLORS.length], backgroundColor: `${COLORS[i % COLORS.length]}08` }}
+            className="rounded-xl p-3 border-2 cursor-pointer transition-all hover:shadow-lg hover:shadow-rose-100/40 hover:-translate-y-0.5"
+            style={{ borderColor: COLORS[i % COLORS.length], backgroundColor: `${COLORS[i % COLORS.length]}10` }}
             onClick={() => {
               const notes = toNotes(t)
               setShowNoteModal({ topic: t, notes })
@@ -413,89 +259,58 @@ export function CompareView({ topics, allRecords, onBack }: CompareViewProps) {
         ))}
       </div>
 
-      {/* ── 图表区域 ── */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-100">
-        {compareMode === 'radar' && (
-          <div>
-            <h4 className="font-semibold text-gray-700 mb-4 text-sm">多维度能力雷达图（归一化显示）</h4>
-            <ResponsiveContainerAny width="100%" height={360}>
-              <RadarChartAny data={radarData}>
-                <PolarGridAny stroke="#e5e7eb" />
-                <PolarAngleAxisAny dataKey="metric" tick={{ fontSize: 12, fill: '#6b7280' }} />
-                <PolarRadiusAxisAny tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                {selectedTopics.map((t, i) => (
-                  <RadarAny
-                    key={t.id}
-                    name={t.name}
-                    dataKey={t.name}
-                    stroke={COLORS[i % COLORS.length]}
-                    fill={COLORS[i % COLORS.length]}
-                    fillOpacity={0.12 + i * 0.04}
-                    strokeWidth={2}
-                  />
-                ))}
-                <LegendAny
-                  formatter={(value) => <span className="text-xs text-gray-600">{value}</span>}
-                 />
-                <TooltipAny content={<ChartTooltip />} />
-              </RadarChartAny>
-            </ResponsiveContainerAny>
-          </div>
-        )}
+      {/* ── 图表区域：互动均值柱状 + 点赞区间分布（同一卡片）── */}
+      <div className="rounded-2xl p-4 sm:p-6 border border-rose-100/50 bg-gradient-to-b from-white via-white to-rose-50/20 shadow-lg shadow-gray-200/40 space-y-8">
+        <div>
+          <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">互动指标柱状对比</h4>
+          <p className="text-xs text-gray-400 mb-4">各主题平均点赞、评论、收藏、分享；悬停柱形查看完整主题名与数值</p>
+          <ResponsiveContainerAny width="100%" height={340}>
+            <BarChartAny data={barData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
+              <CartesianGridAny strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxisAny dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
+              <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }} />
+              <TooltipAny content={<ChartTooltip />} />
+              <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>} />
+              {['点赞', '评论', '收藏', '分享'].map((key, i) => (
+                <BarAny
+                  key={key}
+                  dataKey={key}
+                  fill={COLORS[i % COLORS.length]}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={40}
+                />
+              ))}
+            </BarChartAny>
+          </ResponsiveContainerAny>
+        </div>
 
-        {compareMode === 'bar' && (
-          <div>
-            <h4 className="font-semibold text-gray-700 mb-4 text-sm">互动指标柱状对比</h4>
-            <ResponsiveContainerAny width="100%" height={360}>
-              <BarChartAny data={barData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGridAny strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxisAny dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
-                <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }}  />
-                <TooltipAny content={<ChartTooltip />}  />
-                <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>}  />
-                {['点赞', '评论', '收藏', '分享'].map((key, i) => (
-                  <BarAny
-                    key={key}
-                    dataKey={key}
-                    fill={COLORS[i % COLORS.length]}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={40}
-                  />
-                ))}
-              </BarChartAny>
-            </ResponsiveContainerAny>
-          </div>
-        )}
-
-        {compareMode === 'trend' && (
-          <div>
-            <h4 className="font-semibold text-gray-700 mb-4 text-sm">笔记互动区间分布对比</h4>
-            <p className="text-xs text-gray-400 mb-4">各主题笔记按点赞数分段统计</p>
-            <ResponsiveContainerAny width="100%" height={320}>
-              <BarChartAny data={notesDistributionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGridAny strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxisAny dataKey="bucket" tick={{ fontSize: 11, fill: '#6b7280' }} />
-                <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }}  />
-                <TooltipAny content={<ChartTooltip />}  />
-                <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>}  />
-                {selectedTopics.map((t, i) => (
-                  <BarAny
-                    key={t.id}
-                    dataKey={t.name}
-                    fill={COLORS[i % COLORS.length]}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={30}
-                  />
-                ))}
-              </BarChartAny>
-            </ResponsiveContainerAny>
-          </div>
-        )}
+        <div className="pt-6 border-t border-rose-100/60">
+          <h4 className="font-semibold text-gray-800 mb-1 text-sm tracking-tight">笔记互动区间分布对比</h4>
+          <p className="text-xs text-gray-400 mb-4">各主题笔记按点赞数分段统计（0–100、101–500、…）</p>
+          <ResponsiveContainerAny width="100%" height={320}>
+            <BarChartAny data={notesDistributionData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
+              <CartesianGridAny strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxisAny dataKey="bucket" tick={{ fontSize: 11, fill: '#6b7280' }} />
+              <YAxisAny tick={{ fontSize: 11, fill: '#9ca3af' }} />
+              <TooltipAny content={<ChartTooltip />} />
+              <LegendAny formatter={(value) => <span className="text-xs text-gray-600">{value}</span>} />
+              {selectedTopics.map((t, i) => (
+                <BarAny
+                  key={t.id}
+                  dataKey={t.name}
+                  fill={COLORS[i % COLORS.length]}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={30}
+                />
+              ))}
+            </BarChartAny>
+          </ResponsiveContainerAny>
+        </div>
       </div>
 
       {/* ── 详细数据表格 ── */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-100 overflow-x-auto">
-        <h4 className="font-semibold text-gray-700 mb-4 text-sm">对比数据明细</h4>
+      <div className="rounded-2xl p-4 sm:p-6 border border-gray-100/90 bg-white/95 shadow-md overflow-x-auto">
+        <h4 className="font-semibold text-gray-800 mb-4 text-sm tracking-tight">对比数据明细</h4>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100">

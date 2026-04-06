@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple, Optional
 import sys
 
 # ==================== 配置 ====================
-WORK_DIR = Path(r"E:\document\PG\studio\content")
+WORK_DIR = Path(__file__).resolve().parent
 INPUT_FILE = WORK_DIR / "cleaned_desc.json"
 OUTPUT_DIR = WORK_DIR / "bertopic_ready_data"
 LOG_DIR = WORK_DIR / "logs"

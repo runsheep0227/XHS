@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, MessageCircle, Send, Loader2, Copy, Check } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Copy, Check } from 'lucide-react';
 
 type SentimentType = 'positive' | 'negative' | 'neutral';
 
@@ -9,6 +9,12 @@ interface JudgeResult {
   sentiment: SentimentType;
   sentimentScore: number;
   keywords: string[];
+  /** 主题模型不可用或推理失败时的说明 */
+  topicError?: string;
+  /** 情感模型不可用或推理失败时的说明（评论非空时） */
+  sentimentError?: string;
+  /** 开发排查：来源与跳过原因 */
+  debug?: string[];
 }
 
 export default function ContentJudge() {
@@ -16,41 +22,89 @@ export default function ContentJudge() {
   const [commentContent, setCommentContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<JudgeResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const handleJudge = async () => {
     if (!noteContent.trim() && !commentContent.trim()) return;
-    
+
     setIsLoading(true);
     setResult(null);
+    setError(null);
 
-    // 模拟 API 调用
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 180_000);
 
-    // Mock 结果
-    const mockResult: JudgeResult = {
-      topic: noteContent.includes('美妆') || noteContent.includes('护肤') ? '美妆护肤' :
-             noteContent.includes('美食') ? '美食分享' :
-             noteContent.includes('旅游') || noteContent.includes('旅行') ? '旅行攻略' :
-             noteContent.includes('穿搭') || noteContent.includes('衣服') ? '穿搭分享' :
-             noteContent.includes('健身') || noteContent.includes('运动') ? '健身运动' :
-             noteContent.includes('数码') || noteContent.includes('手机') ? '数码科技' :
-             noteContent.includes('母婴') || noteContent.includes('宝宝') ? '母婴育儿' : '生活日常',
-      topicConfidence: 0.75 + Math.random() * 0.2,
-      sentiment: commentContent.includes('好') || commentContent.includes('喜欢') || commentContent.includes('棒') || commentContent.includes('赞') ? 'positive' :
-                 commentContent.includes('差') || commentContent.includes('不好') || commentContent.includes('坑') ? 'negative' : 'neutral',
-      sentimentScore: 0.5 + Math.random() * 0.4,
-      keywords: ['种草', '推荐', '必看'].filter(() => Math.random() > 0.5)
-    };
-
-    setResult(mockResult);
-    setIsLoading(false);
+    try {
+      const res = await fetch('/api/judge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          note: noteContent.trim(),
+          comment: commentContent.trim(),
+        }),
+        signal: ctrl.signal,
+      });
+      const data: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof data === 'object' &&
+          data !== null &&
+          'error' in data &&
+          typeof (data as { error: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : `请求失败（${res.status}）`;
+        setError(msg);
+        return;
+      }
+      const o = data as Record<string, unknown>;
+      if (typeof o.error === 'string') {
+        setError(o.error);
+        return;
+      }
+      const sentimentRaw = o.sentiment;
+      const sentiment: SentimentType =
+        sentimentRaw === 'positive' || sentimentRaw === 'negative' || sentimentRaw === 'neutral'
+          ? sentimentRaw
+          : 'neutral';
+      const debug = Array.isArray(o.debug)
+        ? o.debug.filter((x): x is string => typeof x === 'string')
+        : undefined;
+      const topicError = typeof o.topicError === 'string' ? o.topicError : undefined;
+      const sentimentError = typeof o.sentimentError === 'string' ? o.sentimentError : undefined;
+      setResult({
+        topic: typeof o.topic === 'string' ? o.topic : '（无主题）',
+        topicConfidence: typeof o.topicConfidence === 'number' ? o.topicConfidence : 0,
+        sentiment,
+        sentimentScore: typeof o.sentimentScore === 'number' ? o.sentimentScore : 0,
+        keywords: Array.isArray(o.keywords)
+          ? o.keywords.filter((k): k is string => typeof k === 'string')
+          : [],
+        ...(topicError ? { topicError } : {}),
+        ...(sentimentError ? { sentimentError } : {}),
+        ...(debug?.length ? { debug } : {}),
+      });
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        setError('分析超时（3 分钟），请缩短文本或检查本机 Python / 模型是否过慢。');
+      } else {
+        setError(e instanceof Error ? e.message : '网络或服务器错误');
+      }
+    } finally {
+      window.clearTimeout(t);
+      setIsLoading(false);
+    }
   };
 
   const handleCopy = () => {
     if (!result) return;
-    const text = `主题判断: ${result.topic} (${(result.topicConfidence * 100).toFixed(1)}%)
-情感判断: ${result.sentiment === 'positive' ? '正面' : result.sentiment === 'negative' ? '负面' : '中性'} (${(result.sentimentScore * 100).toFixed(1)}%)`;
+    const topicLine = result.topicError
+      ? `主题判断: 失败 — ${result.topicError}`
+      : `主题判断: ${result.topic} (${(result.topicConfidence * 100).toFixed(1)}%)`;
+    const sentLine = result.sentimentError
+      ? `情感判断: 失败 — ${result.sentimentError}`
+      : `情感判断: ${result.sentiment === 'positive' ? '正面' : result.sentiment === 'negative' ? '负面' : '中性'} (${(result.sentimentScore * 100).toFixed(1)}%)`;
+    const text = `${topicLine}\n${sentLine}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -63,19 +117,23 @@ export default function ContentJudge() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-50 to-indigo-100">
+    <div className="min-h-screen pb-10 md:pb-14">
       {/* 顶部导航栏 */}
       <header className="bg-white/80 backdrop-blur-md border-b border-violet-100 px-6 py-4 sticky top-[65px] z-40">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-violet-400 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
-              <Sparkles className="w-5 h-5 text-white" />
+              <span className="text-lg leading-none" aria-hidden>
+                ✨
+              </span>
             </div>
             <div>
               <h1 className="text-xl font-bold bg-gradient-to-r from-violet-500 to-purple-600 bg-clip-text text-transparent">
                 AI 内容判断
               </h1>
-              <p className="text-xs text-gray-400">智能判断笔记主题与评论情感</p>
+              <p className="text-xs text-gray-400">
+                主题与情感均从已导出模型加载（BERTopic / comment 分类模型）
+              </p>
             </div>
           </div>
         </div>
@@ -138,6 +196,15 @@ export default function ContentJudge() {
               </>
             )}
           </button>
+
+          {error && (
+            <div
+              className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900"
+              role="alert"
+            >
+              {error}
+            </div>
+          )}
         </div>
 
         {/* 结果展示 */}
@@ -161,58 +228,98 @@ export default function ContentJudge() {
                   <span className="text-xl">🏷️</span>
                   <span className="font-medium text-gray-700">主题判断</span>
                 </div>
-                <div className="flex items-end gap-3 mb-3">
-                  <span className="text-3xl font-bold text-rose-600">{result.topic}</span>
+                <div className="flex items-end gap-3 mb-3 flex-wrap">
+                  <span
+                    className={`text-3xl font-bold ${result.topicError ? 'text-rose-400' : 'text-rose-600'}`}
+                  >
+                    {result.topic}
+                  </span>
                   <span className="text-sm text-gray-400 mb-1">主题</span>
                 </div>
+                {result.topicError ? (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                    {result.topicError}
+                  </p>
+                ) : null}
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
+                  <div
                     className="bg-gradient-to-r from-rose-400 to-pink-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${result.topicConfidence * 100}%` }}
+                    style={{
+                      width: `${result.topicError ? 0 : result.topicConfidence * 100}%`,
+                    }}
                   />
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-xs text-gray-400">置信度</span>
-                  <span className="text-xs font-medium text-rose-500">{(result.topicConfidence * 100).toFixed(1)}%</span>
+                  <span className="text-xs font-medium text-rose-500">
+                    {result.topicError ? '—' : `${(result.topicConfidence * 100).toFixed(1)}%`}
+                  </span>
                 </div>
               </div>
 
               {/* 情感判断 */}
-              <div className={`bg-gradient-to-br rounded-xl p-5 border ${
-                result.sentiment === 'positive' ? 'from-green-50 to-emerald-50 border-green-100' :
-                result.sentiment === 'negative' ? 'from-red-50 to-rose-50 border-red-100' :
-                'from-gray-50 to-slate-50 border-gray-100'
-              }`}>
+              <div
+                className={`bg-gradient-to-br rounded-xl p-5 border ${
+                  result.sentimentError
+                    ? 'from-gray-50 to-slate-50 border-gray-100'
+                    : result.sentiment === 'positive'
+                      ? 'from-green-50 to-emerald-50 border-green-100'
+                      : result.sentiment === 'negative'
+                        ? 'from-red-50 to-rose-50 border-red-100'
+                        : 'from-gray-50 to-slate-50 border-gray-100'
+                }`}
+              >
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xl">{sentimentConfig[result.sentiment].icon}</span>
                   <span className="font-medium text-gray-700">情感判断</span>
                 </div>
                 <div className="flex items-end gap-3 mb-3">
-                  <span className={`text-3xl font-bold ${
-                    result.sentiment === 'positive' ? 'text-green-600' :
-                    result.sentiment === 'negative' ? 'text-red-600' : 'text-gray-600'
-                  }`}>
-                    {sentimentConfig[result.sentiment].label}
+                  <span
+                    className={`text-3xl font-bold ${
+                      result.sentimentError
+                        ? 'text-gray-500'
+                        : result.sentiment === 'positive'
+                          ? 'text-green-600'
+                          : result.sentiment === 'negative'
+                            ? 'text-red-600'
+                            : 'text-gray-600'
+                    }`}
+                  >
+                    {result.sentimentError ? '—' : sentimentConfig[result.sentiment].label}
                   </span>
                   <span className="text-sm text-gray-400 mb-1">情感</span>
                 </div>
+                {result.sentimentError ? (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                    {result.sentimentError}
+                  </p>
+                ) : null}
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
+                  <div
                     className={`bg-gradient-to-r h-2 rounded-full transition-all duration-500 ${
                       result.sentiment === 'positive' ? 'from-green-400 to-emerald-500' :
                       result.sentiment === 'negative' ? 'from-red-400 to-rose-500' :
                       'from-gray-400 to-slate-500'
                     }`}
-                    style={{ width: `${result.sentimentScore * 100}%` }}
+                    style={{
+                      width: `${result.sentimentError ? 0 : result.sentimentScore * 100}%`,
+                    }}
                   />
                 </div>
                 <div className="flex justify-between mt-1">
-                  <span className="text-xs text-gray-400">情感得分</span>
-                  <span className={`text-xs font-medium ${
-                    result.sentiment === 'positive' ? 'text-green-500' :
-                    result.sentiment === 'negative' ? 'text-red-500' : 'text-gray-500'
-                  }`}>
-                    {(result.sentimentScore * 100).toFixed(1)}%
+                  <span className="text-xs text-gray-400">置信度（预测类概率）</span>
+                  <span
+                    className={`text-xs font-medium ${
+                      result.sentimentError
+                        ? 'text-gray-400'
+                        : result.sentiment === 'positive'
+                          ? 'text-green-500'
+                          : result.sentiment === 'negative'
+                            ? 'text-red-500'
+                            : 'text-gray-500'
+                    }`}
+                  >
+                    {result.sentimentError ? '—' : `${(result.sentimentScore * 100).toFixed(1)}%`}
                   </span>
                 </div>
               </div>
@@ -234,13 +341,21 @@ export default function ContentJudge() {
                 </div>
               </div>
             )}
+
+            {import.meta.env.DEV && result.debug && result.debug.length > 0 && (
+              <p className="mt-4 text-xs text-gray-400 font-mono break-all">
+                {result.debug.join(' · ')}
+              </p>
+            )}
           </div>
         )}
 
         {/* 空状态提示 */}
         {!result && !isLoading && (
           <div className="text-center py-12 text-gray-400">
-            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <div className="text-5xl mx-auto mb-4 opacity-60 leading-none" aria-hidden>
+              ✨
+            </div>
             <p>填写内容后点击&quot;开始判断&quot;获取AI分析结果</p>
           </div>
         )}

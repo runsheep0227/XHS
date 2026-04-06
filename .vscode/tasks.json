@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "visualization: dev server",
+      "type": "npm",
+      "script": "dev",
+      "path": "visualization",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:\\s+http://localhost:1306"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "visualization: open Simple Browser (1306)",
+      "type": "shell",
+      "command": "echo ${input:openSimpleBrowser}",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "echo": false, "showReuseMessage": false }
+    },
+    {
+      "label": "Dev: Vite + Simple Browser",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "visualization: dev server",
+        "visualization: open Simple Browser (1306)"
+      ],
+      "problemMatcher": [],
+      "group": "none"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "openSimpleBrowser",
+      "type": "command",
+      "command": "simpleBrowser.api.open",
+      "args": ["http://localhost:1306"]
+    }
+  ]
+}

@@ -50,7 +50,7 @@ from umap import UMAP
 from sklearn.metrics.pairwise import cosine_similarity
 
 # ==================== 路径配置 ====================
-WORK_DIR = Path(r"E:\document\PG\studio\content")
+WORK_DIR = Path(__file__).resolve().parent
 DATA_DIR = WORK_DIR / "bertopic_ready_data"
 MODEL_DIR = WORK_DIR / "bertopic_results_optimized" / "saved_model"
 RESULTS_CSV = WORK_DIR / "bertopic_results_optimized" / "final_pro_topics.csv"

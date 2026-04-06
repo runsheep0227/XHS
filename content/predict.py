@@ -25,7 +25,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 # ==================== 路径与基础配置 ====================
-WORK_DIR = Path(r"E:\document\PG\studio\content")
+WORK_DIR = Path(__file__).resolve().parent
 DATA_DIR = WORK_DIR / "bertopic_ready_data"
 OUTPUT_DIR = WORK_DIR / "bertopic_results_optimized"
 MODEL_DIR = OUTPUT_DIR / "saved_model"
