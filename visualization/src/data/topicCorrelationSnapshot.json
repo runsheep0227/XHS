@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-19",
+  "macroSentiment": [
+    {
+      "macro": "AI内容创作",
+      "total": 18074,
+      "positive": 7233,
+      "neutral": 6770,
+      "negative": 4071,
+      "positivePct": 40.02,
+      "neutralPct": 37.46,
+      "negativePct": 22.52,
+      "pnRatio": 1.78
+    },
+    {
+      "macro": "AI赋能工作生活",
+      "total": 16806,
+      "positive": 6797,
+      "neutral": 6340,
+      "negative": 3669,
+      "positivePct": 40.44,
+      "neutralPct": 37.72,
+      "negativePct": 21.83,
+      "pnRatio": 1.85
+    },
+    {
+      "macro": "AI学习教程",
+      "total": 15137,
+      "positive": 6277,
+      "neutral": 5068,
+      "negative": 3792,
+      "positivePct": 41.47,
+      "neutralPct": 33.48,
+      "negativePct": 25.05,
+      "pnRatio": 1.66
+    },
+    {
+      "macro": "AI应用与测评",
+      "total": 13865,
+      "positive": 4746,
+      "neutral": 5398,
+      "negative": 3721,
+      "positivePct": 34.23,
+      "neutralPct": 38.93,
+      "negativePct": 26.84,
+      "pnRatio": 1.28
+    },
+    {
+      "macro": "AI社会反思",
+      "total": 6720,
+      "positive": 2668,
+      "neutral": 1504,
+      "negative": 2548,
+      "positivePct": 39.7,
+      "neutralPct": 22.38,
+      "negativePct": 37.92,
+      "pnRatio": 1.05
+    }
+  ],
+  "macroSentimentTotal": {
+    "total": 70602,
+    "positive": 27721,
+    "neutral": 25746,
+    "negative": 17801,
+    "positivePct": 39.26,
+    "neutralPct": 36.47,
+    "negativePct": 25.21,
+    "pnRatio": 1.56
+  },
+  "linkedVsAll": {
+    "allComments": {
+      "positivePct": 39.21,
+      "neutralPct": 35.28,
+      "negativePct": 25.52,
+      "pnRatio": 1.54
+    },
+    "linkedMatched": {
+      "positivePct": 39.26,
+      "neutralPct": 36.47,
+      "negativePct": 25.21,
+      "pnRatio": 1.56
+    },
+    "diffPp": {
+      "positivePct": 0.05,
+      "neutralPct": 1.19,
+      "negativePct": -0.31
+    },
+    "diffPnRatio": 0.02
+  }
+}

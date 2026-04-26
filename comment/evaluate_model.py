@@ -1,3 +1,4 @@
+import json
 import os
 import torch
 import pandas as pd
@@ -486,6 +487,20 @@ def main():
     plot_pr_curves(true_labels, all_probs, os.path.join(results_dir, '07_pr_curves.png'))
     plot_metrics_radar(true_labels, pred_labels, os.path.join(results_dir, '08_metrics_radar.png'))
 
+    viz_json = os.path.join(results_dir, "eval_viz_payload.json")
+    with open(viz_json, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "true_labels": [int(x) for x in true_labels],
+                "pred_labels": [int(x) for x in pred_labels.tolist()],
+                "probs": all_probs.tolist(),
+            },
+            f,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    print(f"   ✅ 前端可视化载荷 → {viz_json}")
+
     mis_csv = os.path.join(results_dir, "misclassified_test.csv")
     errors = save_error_analysis(
         texts,
@@ -510,6 +525,7 @@ def main():
         ('06_roc_curves.png',                 'ROC 曲线（One-vs-Rest）'),
         ('07_pr_curves.png',                  'Precision-Recall 曲线'),
         ('08_metrics_radar.png',              '各类别指标雷达图'),
+        ('eval_viz_payload.json',             '前端复现图表用（标签+softmax，与 PNG 同源）'),
         ('09_error_analysis.txt',             '误判明细 TXT（完整正文，最多400条）'),
         ('misclassified_test.csv',            '误判样本 CSV（全部误判+完整 content）'),
         ('evaluation_report.txt',             '文字评估报告'),

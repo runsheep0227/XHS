@@ -51,13 +51,18 @@ export interface ParsedEvaluation {
   classData: { name: string; precision: number; recall: number; f1: number; support: number }[]
 }
 
-export interface MisclassifiedSample {
-  id: number
-  content: string
-  trueLabel: string
-  predLabel: string
-  confidence: number
-  correct: boolean
+/** 与 evaluate_model.py 写出的 eval_viz_payload.json 一致，用于前端复现 04–06 等图 */
+export interface EvalVizPayload {
+  true_labels: number[]
+  pred_labels: number[]
+  probs: [number, number, number][]
+}
+
+/** 预测评论按 IP × content 宏观主题 聚合（用于地域洞察页） */
+export interface GeoMacroRow {
+  region: string
+  macroTopic: string
+  count: number
 }
 
 export interface LiveCommentBundle {
@@ -69,23 +74,22 @@ export interface LiveCommentBundle {
   wordCloud: WordFreqItem[]
   lengthBySentiment: LengthBucketRow[]
   ipDistribution: IpBucketRow[]
+  /** 全量预测子集中 IP 与 BERTopic 宏观主题的交叉计数 */
+  geoMacroMix: GeoMacroRow[]
   predictionsMeta: { total: number; sampleSize: number }
   evalParse: ParsedEvaluation | null
+  /** 存在且非空时与 matplotlib 导出图同源，用于置信度/ROC 等 */
+  evalViz: EvalVizPayload | null
   robertaConfig: RoBERTaConfig
   trainingHistory: { epoch: number; trainLoss: number; valLoss: number; valAcc: number; valF1: number }[]
-  misclassifiedSamples: MisclassifiedSample[]
+  /** 训练曲线来源（开发服从 checkpoint_temp 下最新 checkpoint 解析） */
+  trainingHistoryMeta: { checkpointDir: string; relativePath: string } | null
   /** comment note_id 与 content/BERTopic 关联摘要 */
   contentJoinSummary: {
     contentTopicRows: number
     highCommentNotesMatched: number
     highCommentNotesTotal: number
   }
-}
-
-const labelZh: Record<number, string> = {
-  [-1]: '负向',
-  0: '中性',
-  1: '正向',
 }
 
 function contentNoteMap(records: TopicRecord[]): Map<string, TopicRecord> {
@@ -289,9 +293,10 @@ function buildNoteAggregates(
 ): NoteAgg[] {
   const map = new Map<string, PredictedCommentRow[]>()
   for (const r of sample) {
-    if (!topNoteIds.has(r.note_id)) continue
-    if (!map.has(r.note_id)) map.set(r.note_id, [])
-    map.get(r.note_id)!.push(r)
+    const nid = String(r.note_id ?? '').trim()
+    if (!nid || !topNoteIds.has(nid)) continue
+    if (!map.has(nid)) map.set(nid, [])
+    map.get(nid)!.push(r)
   }
   return [...map.entries()].map(([noteId, comments]) => ({ noteId, comments }))
 }
@@ -406,30 +411,6 @@ export function parseEvaluationReport(text: string): ParsedEvaluation | null {
   return { metrics, classData }
 }
 
-function parseMisclassifiedCsv(text: string, max = 12): MisclassifiedSample[] {
-  const rows = parseSimpleCsv(text.trim())
-  const out: MisclassifiedSample[] = []
-  for (let i = 1; i < rows.length && out.length < max; i++) {
-    const r = rows[i]
-    if (r.length < 9) continue
-    const trueLab = r[2]
-    const predLab = r[3]
-    const conf = r[4]
-    const content = r.slice(8).join(',').replace(/^"|"$/g, '')
-    const tl = parseInt(trueLab, 10)
-    const pl = parseInt(predLab, 10)
-    out.push({
-      id: i,
-      content: content.slice(0, 400),
-      trueLabel: labelZh[tl] ?? String(tl),
-      predLabel: labelZh[pl] ?? String(pl),
-      confidence: parseFloat(conf) || 0,
-      correct: false,
-    })
-  }
-  return out
-}
-
 /**
  * 与 comment/train_roberta.py 默认一致：DEFAULT_MODEL_NAME（MacBERT-large）、
  * DEFAULT_MAX_LENGTH、Large 骨干下默认 train_batch×grad_accum 与学习率。
@@ -463,31 +444,69 @@ function metricsFromPolarity(p: LivePolaritySummary): CommentMetrics {
   }
 }
 
-/** 与 vite 中 /comment/predictions 的 PREDICTIONS_API_MAX 协调；默认尽量一次拉全量做词频/分桶等 */
-const DEFAULT_PRED_SAMPLE_LIMIT = 120_000
+/** 与 vite 中 /comment/predictions 的 PREDICTIONS_API_MAX 协调；单页尽量大以减少往返，仍分页直至全量 */
+const DEFAULT_PRED_PAGE_SIZE = 120_000
 
-function resolvedSampleLimit(explicit?: number): number {
+function resolvedPageSize(explicit?: number): number {
   if (explicit !== undefined && explicit > 0) return explicit
-  const fromEnv = parseInt(
-    String(import.meta.env.VITE_COMMENT_PRED_SAMPLE_LIMIT || ''),
-    10,
-  )
+  const fromEnv = parseInt(String(import.meta.env.VITE_COMMENT_PRED_SAMPLE_LIMIT || ''), 10)
   if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv
-  return DEFAULT_PRED_SAMPLE_LIMIT
+  return DEFAULT_PRED_PAGE_SIZE
+}
+
+function parseEvalVizPayload(json: unknown): EvalVizPayload | null {
+  if (!json || typeof json !== 'object') return null
+  const o = json as Record<string, unknown>
+  const tl = o.true_labels
+  const pl = o.pred_labels
+  const pr = o.probs
+  if (!Array.isArray(tl) || !Array.isArray(pl) || !Array.isArray(pr)) return null
+  if (tl.length === 0 || tl.length !== pl.length || pr.length !== tl.length) return null
+  for (const row of pr) {
+    if (!Array.isArray(row) || row.length !== 3) return null
+  }
+  return {
+    true_labels: tl.map(x => Number(x)),
+    pred_labels: pl.map(x => Number(x)),
+    probs: pr as [number, number, number][],
+  }
+}
+
+async function fetchAllPredictions(pageSize: number): Promise<{ total: number; rows: PredictedCommentRow[] }> {
+  let offset = 0
+  let total = 0
+  const out: PredictedCommentRow[] = []
+  for (;;) {
+    const resp = (await fetch(`${BASE}/comment/predictions?limit=${pageSize}&offset=${offset}`).then(r => r.json())) as {
+      total?: number
+      offset?: number
+      limit?: number
+      sample?: PredictedCommentRow[]
+      error?: string
+    }
+    if (resp.error) throw new Error(resp.error)
+    const sample = resp.sample ?? []
+    total = resp.total ?? total
+    out.push(...sample)
+    offset += sample.length
+    if (!sample.length) break
+    if (total && offset >= total) break
+  }
+  return { total: total || out.length, rows: out }
 }
 
 export async function loadLiveCommentBundle(
-  sampleLimit?: number,
+  pageSize?: number,
 ): Promise<LiveCommentBundle> {
-  const limit = resolvedSampleLimit(sampleLimit)
+  const limit = resolvedPageSize(pageSize)
   const [
     polText,
     notesText,
     stopText,
-    predRes,
+    predAll,
     trainRes,
     evalText,
-    misText,
+    evalVizRaw,
     topicPack,
   ] = await Promise.all([
     fetch(`${BASE}/comment/comment_results/prediction_stats_polarity.csv`).then(
@@ -499,22 +518,33 @@ export async function loadLiveCommentBundle(
     fetch(`${BASE}/comment/meaningless_word.txt`).then(r =>
       r.ok ? r.text() : ''
     ),
-    fetch(
-      `${BASE}/comment/predictions?limit=${limit}&offset=0`,
-    ).then(r => r.json()) as Promise<{
-      total?: number
-      sample?: PredictedCommentRow[]
-      error?: string
+    fetchAllPredictions(limit),
+    fetch(`${BASE}/comment/training_history`).then(async (r) => {
+      if (!r.ok) return { history: [], meta: null }
+      try {
+        const j = (await r.json()) as {
+          history?: LiveCommentBundle['trainingHistory']
+          meta?: LiveCommentBundle['trainingHistoryMeta']
+        }
+        return { history: j.history ?? [], meta: j.meta ?? null }
+      } catch {
+        return { history: [], meta: null }
+      }
+    }) as Promise<{
+      history: LiveCommentBundle['trainingHistory']
+      meta: LiveCommentBundle['trainingHistoryMeta']
     }>,
-    fetch(`${BASE}/comment/training_history`).then(r =>
-      r.ok ? r.json() : { history: [] }
-    ) as Promise<{ history?: LiveCommentBundle['trainingHistory'] }>,
     fetch(`${BASE}/comment/results/evaluation_report.txt`).then(r =>
       r.ok ? r.text() : ''
     ),
-    fetch(`${BASE}/comment/results/misclassified_test.csv`).then(r =>
-      r.ok ? r.text() : ''
-    ),
+    fetch(`${BASE}/comment/results/eval_viz_payload.json`).then(async r => {
+      if (!r.ok) return null
+      try {
+        return parseEvalVizPayload(await r.json())
+      } catch {
+        return null
+      }
+    }),
     loadTopicCSV().catch((e: unknown) => {
       console.warn('[commentLiveData] loadTopicCSV 失败，评论页无法关联 content:', e)
       return { records: [] as TopicRecord[], meta: null }
@@ -538,11 +568,12 @@ export async function loadLiveCommentBundle(
   const stop = parseMeaninglessWords(stopText || '')
   const contentMap = contentNoteMap(topicPack.records)
 
-  if (predRes.error) {
-    throw new Error(predRes.error)
-  }
-  const sample = predRes.sample ?? []
-  const totalPred = predRes.total ?? sample.length
+  /** 与排名表、BERTopic CSV、rawdata 建联时统一 trim，避免隐性空白导致匹配失败 */
+  const sample: PredictedCommentRow[] = predAll.rows.map(r => ({
+    ...r,
+    note_id: String(r.note_id ?? '').trim(),
+  }))
+  const totalPred = predAll.total
 
   let avgLen = 0
   if (sample.length) {
@@ -552,10 +583,8 @@ export async function loadLiveCommentBundle(
   }
   metrics.avgCommentLength = Math.round(avgLen)
 
-  const topIds = new Set(
-    noteRank.slice(0, 24).map(n => n.noteId)
-  )
-  const aggs = buildNoteAggregates(sample, topIds)
+  const allIds = new Set(noteRank.map(n => n.noteId.trim()))
+  const aggs = buildNoteAggregates(sample, allIds)
 
   const noteOrder = new Map(noteRank.map((n, i) => [n.noteId, i]))
   aggs.sort(
@@ -572,6 +601,7 @@ export async function loadLiveCommentBundle(
     const macro = cr?.macro_topic?.trim() || ''
     const contentFull = (cr?.content || '').trim()
     const descFull = (cr?.desc || '').trim()
+    const predN = a.comments.length
     return {
       id: idx + 1,
       name: displayTitleFromContent(cr, a.noteId),
@@ -586,6 +616,7 @@ export async function loadLiveCommentBundle(
       contentMicroKeywords: cr?.micro_topic_keywords?.trim() || undefined,
       contentMappingConfidence: cr?.confidence,
       commentCount: fullCount,
+      sentimentFromCount: predN,
       keywords: topKeywordsForNote(a.comments, stop),
       positiveRatio,
       neutralRatio,
@@ -608,6 +639,7 @@ export async function loadLiveCommentBundle(
     const macro = cr?.macro_topic?.trim()
     const contentFull = (cr?.content || '').trim()
     const descFull = (cr?.desc || '').trim()
+    const predN = a.comments.length
     return {
       id: `n_${a.noteId}`,
       noteId: a.noteId,
@@ -629,6 +661,7 @@ export async function loadLiveCommentBundle(
       ),
       keywords: topKeywordsForNote(a.comments, stop, 8),
       commentCount: fullCount,
+      sentimentSampleSize: predN,
       avgCommentLikes: 0,
       topComments: rowsToTopComments(a.comments, cr),
     }
@@ -642,9 +675,27 @@ export async function loadLiveCommentBundle(
   const wordCloud = buildWordFreq(sample, stop, 40)
   const lengthBySentiment = buildLengthBuckets(sample)
   const ipDistribution = buildIpDistribution(sample)
+
+  const geoMacroAcc = new Map<string, number>()
+  for (const r of sample) {
+    const nid = String(r.note_id ?? '').trim()
+    if (!nid) continue
+    const cr = contentMap.get(nid)
+    const macro = (cr?.macro_topic || '（未关联 content）').trim() || '（未关联 content）'
+    const region = r.ip_location?.trim() || '未知'
+    const key = `${region}\u0001${macro}`
+    geoMacroAcc.set(key, (geoMacroAcc.get(key) || 0) + 1)
+  }
+  const geoMacroMix: GeoMacroRow[] = [...geoMacroAcc.entries()]
+    .map(([k, count]) => {
+      const [region, macroTopic] = k.split('\u0001')
+      return { region, macroTopic, count }
+    })
+    .sort((a, b) => b.count - a.count)
   const evalParse = parseEvaluationReport(evalText)
   const trainingHistory = trainRes.history ?? []
-  const misclassifiedSamples = parseMisclassifiedCsv(misText, 14)
+  const trainingHistoryMeta = trainRes.meta ?? null
+  const evalViz = evalVizRaw
 
   if (topicPack.records.length > 0) {
     console.log(
@@ -661,11 +712,13 @@ export async function loadLiveCommentBundle(
     wordCloud,
     lengthBySentiment,
     ipDistribution,
+    geoMacroMix,
     predictionsMeta: { total: totalPred, sampleSize: sample.length },
     evalParse,
+    evalViz,
     robertaConfig: REAL_ROBERTA_CONFIG,
     trainingHistory,
-    misclassifiedSamples,
+    trainingHistoryMeta,
     contentJoinSummary: {
       contentTopicRows: topicPack.records.length,
       highCommentNotesMatched,

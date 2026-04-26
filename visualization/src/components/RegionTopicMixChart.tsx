@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import { formatNumber } from '@/utils/responsive'
+import { macroTopicDisplayColor } from '../theme/macroTopicColors'
 
 const XAxisAny = XAxis as any
 const YAxisAny = YAxis as any
@@ -20,8 +21,6 @@ const LegendAny = Legend as any
 const BarChartAny = BarChart as any
 const BarAny = Bar as any
 const ResponsiveContainerAny = ResponsiveContainer as any
-
-const TOPIC_COLORS = ['#e11d48', '#7c3aed', '#0891b2', '#16a34a', '#d97706']
 
 export interface MixCell {
   topicId: number
@@ -173,7 +172,7 @@ export function RegionTopicMixChart({ rows, topicOrder }: RegionTopicMixChartPro
               dataKey={col.key}
               name={col.name}
               stackId="mix"
-              fill={TOPIC_COLORS[i % TOPIC_COLORS.length]}
+              fill={macroTopicDisplayColor(col.name)}
               radius={i === dataKeys.length - 1 ? [0, 6, 6, 0] : [0, 0, 0, 0]}
               maxBarSize={32}
             />

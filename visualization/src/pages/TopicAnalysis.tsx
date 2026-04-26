@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Search,
   BarChart3,
@@ -7,7 +8,6 @@ import {
   ArrowLeft,
   Loader2,
   GitCompare,
-  Target,
   MapPin,
   BookOpen,
   Brain,
@@ -21,58 +21,65 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
   Tooltip,
-  Legend,
+  Sankey,
 } from 'recharts';
 import {
   loadTopicCSV,
-  loadTopicStats,
   aggregateTopics,
   buildIPDistribution,
   buildWordCloudEntriesForTopic,
   toNotes,
   Topic,
   TopicRecord,
-  TopicStats,
 } from '../data/topicData';
 import { EmptyState } from '../components/common/States';
-import { ModelQualityDashboard, TopicStructureTrainingView } from '../components/ModelQualityCharts';
+import { ModelQualityDashboard } from '../components/ModelQualityCharts';
 import { formatNumber } from '../utils/responsive';
 import { CompareView } from '../components/InteractiveCharts';
 import { ChinaIPMapChart } from '../components/ChinaIPMapChart';
 import { RegionTopicMixChart } from '../components/RegionTopicMixChart';
 import { sameIpRegion } from '../utils/ipLocationMap';
+import { macroTopicDisplayColor, MACRO_ANCHOR_ORDER } from '../theme/macroTopicColors';
 
 const PieChartRC = PieChart as any;
 const PieRC = Pie as any;
 const CellRC = Cell as any;
+const BarRC = Bar as any;
+const BarChartRC = BarChart as any;
+const CartesianGridRC = CartesianGrid as any;
+const XAxisRC = XAxis as any;
+const YAxisRC = YAxis as any;
 const ResponsiveContainerRC = ResponsiveContainer as any;
 const TooltipRC = Tooltip as any;
-const LegendRC = Legend as any;
+const SankeyRC = Sankey as any;
 
-/** 与 content/bertopic_visualize.py 中 MACRO_ANCHORS 配色对齐 */
-const MACRO_ANCHOR_COLORS: Record<string, string> = {
-  AI内容创作: '#E74C3C',
-  'AI应用与测评': '#3498DB',
-  'AI学习教程': '#2ECC71',
-  'AI赋能工作生活': '#F39C12',
-  'AI社会反思': '#9B59B6',
-};
-
-const SUB_OVERVIEW_FALLBACK_COLORS = [
-  '#f43f5e',
-  '#8b5cf6',
-  '#06b6d4',
-  '#22c55e',
-  '#f59e0b',
-  '#ec4899',
-  '#14b8a6',
+/**
+ * 桑基中间列 T* 专用色：与五大宏观锚点（MACRO_ANCHOR_COLORS）及右侧回退色刻意区分，
+ * 避免用户误以为 T* 条与某一宏观主题一一对应。
+ */
+const SANKEY_MICRO_TOPIC_COLORS = [
+  '#475569',
   '#6366f1',
-  '#a855f7',
+  '#0e7490',
+  '#9d174d',
+  '#713f12',
+  '#1e40af',
+  '#0f766e',
+  '#831843',
+  '#155e75',
+  '#4c1d95',
+  '#854d0e',
+  '#334155',
 ];
 
 function isNoiseMacroLabel(name: string): boolean {
@@ -85,12 +92,333 @@ function isNoiseTopicRecord(r: TopicRecord): boolean {
   return isNoiseMacroLabel(r.macro_topic || '');
 }
 
-type ViewMode = 'bertopic' | 'topicStructure' | 'confidence' | 'geo' | 'compare';
+/** 桑基聚合用宏观名：trim，避免「同主题」因首尾空格拆成两列、连线配色错位 */
+function normalizedMacroForSankey(r: TopicRecord): string {
+  if (isNoiseTopicRecord(r)) return '噪声数据';
+  return (r.macro_topic ?? '').trim() || '未分类';
+}
+
+/** 桑基图 micro↔macro 复合键分隔符（避免 macro 名含 __ 导致 split 错位） */
+const SANKEY_PART_SEP = '\u001f';
+
+function microNodeLabel(id: number): string {
+  return `T${id}`;
+}
+
+/** 右侧宏观主题节点：与环形图图例 / macroTopicDisplayColor 一致 */
+function sankeyMacroNodeFill(name: string): string {
+  return macroTopicDisplayColor(name);
+}
+
+/** 中间列 T*：按微观 id 轮换（色谱与宏观锚点无关） */
+function sankeyMicroNodeFill(displayName: string): string {
+  const m = /^T(-?\d+)$/.exec(displayName.trim());
+  if (!m) return '#64748b';
+  const id = parseInt(m[1], 10);
+  return SANKEY_MICRO_TOPIC_COLORS[Math.abs(id) % SANKEY_MICRO_TOPIC_COLORS.length];
+}
+
+/** 右侧宏观列顺序：先五大锚点固定序，再其余名称，噪声类置底 */
+function sankeyOrderedMacroNames(macroSet: Set<string>): string[] {
+  const anchorSlice = MACRO_ANCHOR_ORDER.filter((n) => macroSet.has(n));
+  const anchorNames = new Set<string>(anchorSlice);
+  const rest = [...macroSet]
+    .filter((n) => !anchorNames.has(n))
+    .sort((a, b) => {
+      if (a === '噪声数据') return 1;
+      if (b === '噪声数据') return -1;
+      return a.localeCompare(b, 'zh-CN');
+    });
+  return [...anchorSlice, ...rest];
+}
+
+/** 某微观主题的主要汇入宏观（篇数最多；并列时取宏观列中更靠上的项） */
+function sankeyPrimaryMacroIndex(
+  microId: number,
+  microToMacro: Map<string, number>,
+  macroList: string[],
+): number {
+  let bestIdx = 0;
+  let bestVal = -1;
+  for (let idx = 0; idx < macroList.length; idx++) {
+    const key = `${microId}${SANKEY_PART_SEP}${macroList[idx]}`;
+    const v = microToMacro.get(key) || 0;
+    if (v > bestVal || (v === bestVal && idx < bestIdx)) {
+      bestVal = v;
+      bestIdx = idx;
+    }
+  }
+  return bestIdx;
+}
+
+/** 将常见 hex 规范为 6 位，便于算对比色 */
+function normalizeHex6(fillHex: string): string | null {
+  let h = fillHex.replace('#', '').trim();
+  if (h.length === 3) {
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
+  return h.length === 6 ? h : null;
+}
+
+/** 根据节点底色选高对比文字色（右侧宏观条上的主题名更清晰） */
+function contrastingTextOnFill(fillHex: string): string {
+  const h = normalizeHex6(fillHex);
+  if (!h) return '#0f172a';
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.62 ? '#0f172a' : '#fafaf9';
+}
+
+function sankeyNodeColors(name: string, depth: number): { fill: string; textFill: string } {
+  // 节点文本绘制在矩形外侧白底区域，因此需用深色文字保证可读性
+  if (depth === 0) return { fill: '#64748b', textFill: '#334155' };
+  if (depth === 1) return { fill: sankeyMicroNodeFill(name), textFill: '#ffffff' };
+  const fill = sankeyMacroNodeFill(name);
+  return { fill, textFill: '#334155' };
+}
+
+/** 指向 T* 的连线保持中性灰；指向右侧宏观主题的连线与锚点色一致 */
+const SANKEY_LINK_GRAY = '#94a3b8';
+
+function sankeyLinkTargetDisplayName(payload?: {
+  target?: { name?: string };
+  source?: { name?: string; depth?: number };
+}): string {
+  const tDirect = payload?.target;
+  const tNested = (payload as { payload?: { target?: { name?: string } } } | undefined)?.payload?.target;
+  const t = tDirect ?? tNested;
+  if (t && typeof t === 'object' && t.name != null && String(t.name).trim() !== '') {
+    return String(t.name).trim();
+  }
+  return '';
+}
+
+function SankeyThemedLink(props: {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  sourceControlX: number;
+  targetControlX: number;
+  linkWidth: number;
+  payload?: { target?: { name?: string; depth?: number }; source?: { name?: string; depth?: number } };
+}) {
+  const {
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourceControlX,
+    targetControlX,
+    linkWidth,
+    payload,
+  } = props;
+  const tn = sankeyLinkTargetDisplayName(payload);
+  const targetDepth =
+    payload?.target?.depth ??
+    (payload as { payload?: { target?: { depth?: number } } } | undefined)?.payload?.target?.depth;
+  const toMacroStage = typeof targetDepth === 'number' ? targetDepth >= 2 : !/^T-?\d+$/.test(tn);
+  const color = toMacroStage && tn ? sankeyMacroNodeFill(tn) : SANKEY_LINK_GRAY;
+  const opacity = toMacroStage && tn ? 0.52 : 0.42;
+  /** 略压细流量带，避免大屏下 ribbon 过粗占满视觉 */
+  const w = Math.max(1.2, linkWidth * 0.68);
+  const d = `M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`;
+  return (
+    <path
+      d={d}
+      fill="none"
+      stroke={color}
+      strokeOpacity={opacity}
+      strokeWidth={w}
+      strokeLinecap="round"
+      className="recharts-sankey-link"
+    />
+  );
+}
+
+/** Recharts Sankey 默认节点无文字；需在自定义节点里画 rect + text */
+function SankeyNodeWithLabel(props: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  payload?: { name?: string; value?: number; depth?: number };
+}) {
+  const { x, y, width, height, payload } = props;
+  const depth = payload?.depth ?? 0;
+  const raw = String(payload?.name ?? '');
+  const maxLen = depth === 1 ? 10 : 14;
+  const short = raw.length > maxLen ? `${raw.slice(0, maxLen - 1)}…` : raw;
+  const minLabelHeight = depth === 1 ? 12 : depth >= 2 ? 14 : 10;
+  const showText = height >= minLabelHeight && short.length > 0;
+  const { fill, textFill } = sankeyNodeColors(raw, depth);
+  let tx = x + width + 5;
+  let anchor: 'start' | 'end' = 'start';
+  if (depth === 0) {
+    tx = x - 5;
+    anchor = 'end';
+  } else if (depth >= 2) {
+    tx = x + width + 6;
+    anchor = 'start';
+  } else {
+    tx = x + width + 4;
+    anchor = 'start';
+  }
+  const ty = y + height / 2;
+  return (
+    <g className="recharts-sankey-node-with-label">
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={3}
+        ry={3}
+        fill={fill}
+        stroke="#ffffff"
+        strokeWidth={1.5}
+      />
+      {showText ? (
+        <text
+          x={tx}
+          y={ty}
+          textAnchor={anchor}
+          dominantBaseline="middle"
+          fill={textFill}
+          fontSize={depth === 1 ? 9 : depth >= 2 ? 12 : 11}
+          fontWeight={depth >= 2 ? 700 : depth === 0 ? 700 : 600}
+          style={
+            depth === 1
+              ? { pointerEvents: 'none', paintOrder: 'stroke', stroke: 'rgba(15,23,42,0.28)', strokeWidth: 2 }
+              : depth >= 2 || depth === 0
+                ? { pointerEvents: 'none', paintOrder: 'stroke', stroke: 'rgba(255,255,255,0.92)', strokeWidth: 2 }
+                : { pointerEvents: 'none' }
+          }
+        >
+          {short}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+/** 外环：虚线引向环外，展示主题名 + 该主题平均置信度 + 篇数占比 */
+function MacroOutsideLeaderLabel(props: {
+  cx: number;
+  cy: number;
+  midAngle: number;
+  innerRadius: number;
+  outerRadius: number;
+  name: string;
+  value: number;
+  percent: number;
+  avgConfidence?: number;
+  payload?: { avgConfidence?: number };
+}) {
+  const { cx, cy, midAngle, outerRadius, name, value, percent } = props;
+  if (percent < 0.03) return null;
+  const avgConf =
+    typeof props.avgConfidence === 'number'
+      ? props.avgConfidence
+      : typeof props.payload?.avgConfidence === 'number'
+        ? props.payload.avgConfidence
+        : 0;
+  const RAD = Math.PI / 180;
+  const angle = -midAngle * RAD;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const x0 = cx + outerRadius * cos;
+  const y0 = cy + outerRadius * sin;
+  const r1 = outerRadius + 8;
+  const x1 = cx + r1 * cos;
+  const y1 = cy + r1 * sin;
+  const tangent = 24;
+  const x2 = x1 + (cos >= 0 ? tangent : -tangent);
+  const y2 = y1;
+  const textAnchor = cos >= 0 ? 'start' : 'end';
+  const tx = x2 + (cos >= 0 ? 2 : -2);
+  const shortName = name.length > 9 ? `${name.slice(0, 9)}…` : name;
+  return (
+    <g className="recharts-pie-outside-label" pointerEvents="none">
+      <polyline
+        points={`${x0},${y0} ${x1},${y1} ${x2},${y2}`}
+        fill="none"
+        stroke="#94a3b8"
+        strokeWidth={1}
+        strokeDasharray="2 4"
+      />
+      <text x={tx} y={y2} textAnchor={textAnchor} dominantBaseline="middle" fill="#0f172a" fontSize={10} fontWeight={700}>
+        <tspan x={tx} dy="-0.55em">
+          {shortName}
+        </tspan>
+        <tspan x={tx} dy="1.1em" fill="#475569" fontSize={9} fontWeight={600}>
+          平均置信 {(avgConf * 100).toFixed(0)}% · {formatNumber(value)}篇 · {(percent * 100).toFixed(1)}%
+        </tspan>
+      </text>
+    </g>
+  );
+}
+
+/** 内环：与外环同构，虚线从内环外缘径向引出至两环间隙再折线，文字一律深灰（不用白字） */
+function ConfidenceBetweenRingsLeaderLabel(props: {
+  cx: number;
+  cy: number;
+  midAngle: number;
+  innerRadius: number;
+  outerRadius: number;
+  name: string;
+  value: number;
+  percent: number;
+}) {
+  const { cx, cy, midAngle, outerRadius, name, value, percent } = props;
+  if (percent < 0.02 || name === '—') return null;
+  const RAD = Math.PI / 180;
+  const angle = -midAngle * RAD;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const x0 = cx + outerRadius * cos;
+  const y0 = cy + outerRadius * sin;
+  const r1 = outerRadius + 7;
+  const x1 = cx + r1 * cos;
+  const y1 = cy + r1 * sin;
+  const tangent = 22;
+  const x2 = x1 + (cos >= 0 ? tangent : -tangent);
+  const y2 = y1;
+  const textAnchor = cos >= 0 ? 'start' : 'end';
+  const tx = x2 + (cos >= 0 ? 2 : -2);
+  const short = name.length > 6 ? `${name.slice(0, 6)}…` : name;
+  return (
+    <g className="recharts-pie-confidence-outside-label" pointerEvents="none">
+      <polyline
+        points={`${x0},${y0} ${x1},${y1} ${x2},${y2}`}
+        fill="none"
+        stroke="#64748b"
+        strokeWidth={1}
+        strokeDasharray="2 4"
+      />
+      <text x={tx} y={y2} textAnchor={textAnchor} dominantBaseline="middle" fill="#0f172a" fontSize={9} fontWeight={700}>
+        <tspan x={tx} dy="-0.5em">
+          {short}
+        </tspan>
+        <tspan x={tx} dy="1.05em" fill="#475569" fontSize={8.5} fontWeight={600}>
+          {formatNumber(value)}篇 · {(percent * 100).toFixed(1)}%
+        </tspan>
+      </text>
+    </g>
+  );
+}
+
+type ViewMode = 'bertopic' | 'confidence' | 'geo' | 'compare';
 
 type MainModuleId = 'notes' | 'model';
 
 function mainModuleOf(mode: ViewMode): MainModuleId {
-  return mode === 'topicStructure' || mode === 'confidence' ? 'model' : 'notes';
+  return mode === 'confidence' ? 'model' : 'notes';
 }
 
 /** 笔记级内容搜索（不区分大小写）：标题、正文、分词、标签、关键词与宏观主题名 */
@@ -135,7 +463,6 @@ export default function TopicAnalysis() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [topicStats, setTopicStats] = useState<TopicStats[]>([]);
   // ─── 数据加载：loadTopicCSV 内已合并全部 rawdata JSON ───
   useEffect(() => {
     async function fetchData() {
@@ -153,13 +480,11 @@ export default function TopicAnalysis() {
           );
           setAllRecords([]);
           setTopics([]);
-          setTopicStats(await loadTopicStats());
           return;
         }
 
         setAllRecords(topicRecords);
         setTopics(aggregateTopics(topicRecords));
-        setTopicStats(await loadTopicStats());
       } catch (e) {
         console.error('[TopicAnalysis] 数据加载失败:', e);
         setLoadError('数据加载失败，请检查控制台错误信息。');
@@ -215,6 +540,14 @@ export default function TopicAnalysis() {
     return m;
   }, [isNoteSearchActive, noteSearchMatches]);
 
+  const topicListScrollRef = useRef<HTMLDivElement>(null);
+  const topicSidebarVirtualizer = useVirtualizer({
+    count: filteredTopics.length,
+    getScrollElement: () => topicListScrollRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+  });
+
   // ─── 选中主题的笔记 ───
   const topicNotes = useMemo(() => {
     if (!selectedTopic) return [];
@@ -250,11 +583,8 @@ export default function TopicAnalysis() {
       label: '模型效果',
       hint: '训练侧簇统计与样本推断诊断',
       icon: Brain,
-      defaultTab: 'topicStructure' as const,
-      tabs: [
-        { id: 'topicStructure' as const, label: '主题簇统计', icon: Layers },
-        { id: 'confidence' as const, label: '推断诊断', icon: Target },
-      ],
+      defaultTab: 'confidence' as const,
+      tabs: [{ id: 'confidence' as const, label: '推断诊断', icon: Layers }],
     },
   ] as const;
 
@@ -387,7 +717,7 @@ export default function TopicAnalysis() {
         <aside
           className={`
             lg:w-64 xl:w-72 lg:shrink-0 bg-white/60 backdrop-blur-sm border-r border-rose-100
-            overflow-y-auto p-3 sm:p-4 min-h-0
+            flex flex-col min-h-0 overflow-hidden p-3 sm:p-4
             ${isMobileSidebarOpen ? 'block' : 'hidden'}
             lg:block
             fixed lg:relative lg:self-stretch top-44 lg:top-auto left-0 right-0 z-30 lg:z-auto
@@ -395,7 +725,7 @@ export default function TopicAnalysis() {
             shadow-xl lg:shadow-none
           `}
         >
-          <div className="flex items-center justify-between lg:hidden mb-3">
+          <div className="flex items-center justify-between lg:hidden mb-3 shrink-0">
             <h2 className="font-semibold text-gray-700 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-rose-500" />
               主题列表
@@ -414,54 +744,90 @@ export default function TopicAnalysis() {
               }
             />
           ) : (
-            <div className="space-y-2">
+            <>
               {isNoteSearchActive && (
-                <p className="text-[11px] text-rose-600/90 font-medium px-1 mb-1">以下为含命中笔记的主题</p>
+                <p className="text-[11px] text-rose-600/90 font-medium px-1 mb-1 shrink-0">
+                  以下为含命中笔记的主题
+                </p>
               )}
-              {filteredTopics.map((topic, index) => {
-                const hits = hitCountByTopicName.get(topic.name);
-                return (
-                  <div
-                    key={topic.id}
-                    onClick={() => {
-                      setSelectedTopic(topic);
-                      setIsMobileSidebarOpen(false);
-                    }}
-                    className={`p-2.5 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md ${
-                      selectedTopic?.id === topic.id
-                        ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-lg'
-                        : 'bg-white hover:bg-rose-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1 gap-2">
-                      <span className="font-medium text-sm truncate">{topic.name}</span>
-                      <span className={`text-xs shrink-0 ${selectedTopic?.id === topic.id ? 'text-white/80' : 'text-gray-400'}`}>
-                        #{index + 1}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs flex-wrap">
-                      {hits != null && (
-                        <span
-                          className={
-                            selectedTopic?.id === topic.id
-                              ? 'text-amber-100 font-medium'
-                              : 'text-amber-700 font-medium bg-amber-50 px-1.5 py-0.5 rounded-md'
-                          }
+              <div
+                ref={topicListScrollRef}
+                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden -mx-0.5 px-0.5"
+              >
+                <div
+                  className="relative w-full"
+                  style={{ height: topicSidebarVirtualizer.getTotalSize() }}
+                >
+                  {topicSidebarVirtualizer.getVirtualItems().map((vRow) => {
+                    const index = vRow.index;
+                    const topic = filteredTopics[index];
+                    const hits = hitCountByTopicName.get(topic.name);
+                    const isSelected = selectedTopic?.id === topic.id;
+                    const accent = macroTopicDisplayColor(topic.name);
+                    const cardStyle = isSelected
+                      ? {
+                          background: `linear-gradient(135deg, ${accent}26 0%, ${accent}14 100%)`,
+                          borderColor: `${accent}66`,
+                        }
+                      : {
+                          background: `linear-gradient(135deg, ${accent}12 0%, #ffffff 62%)`,
+                          borderColor: `${accent}2b`,
+                        };
+                    return (
+                      <div
+                        key={topic.id}
+                        className="absolute left-0 top-0 w-full pb-2"
+                        style={{ transform: `translateY(${vRow.start}px)` }}
+                      >
+                        <div
+                          onClick={() => {
+                            setSelectedTopic(topic);
+                            setIsMobileSidebarOpen(false);
+                          }}
+                          className={`group relative overflow-hidden border p-2.5 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-[1px] ${
+                            isSelected ? 'text-gray-900 shadow-md' : 'text-gray-800'
+                          }`}
+                          style={cardStyle}
                         >
-                          命中 {hits} 篇
-                        </span>
-                      )}
-                      <span className={selectedTopic?.id === topic.id ? 'text-white/80' : 'text-gray-500'}>
-                        共 {formatNumber(topic.noteCount)} 篇
-                      </span>
-                      <span className={selectedTopic?.id === topic.id ? 'text-white/80' : 'text-pink-500'}>
-                        ❤️ {formatNumber(topic.avgLikes)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                          <span
+                            aria-hidden
+                            className="absolute left-0 top-0 h-full w-1.5 rounded-l-xl"
+                            style={{ backgroundColor: accent, opacity: isSelected ? 0.95 : 0.72 }}
+                          />
+                          <div className="flex items-center justify-between mb-1 gap-2">
+                            <span className="font-medium text-sm truncate pl-2.5">{topic.name}</span>
+                            <span
+                              className={`text-xs shrink-0 ${isSelected ? 'text-gray-600' : 'text-gray-400'}`}
+                            >
+                              #{index + 1}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs flex-wrap pl-2.5">
+                            {hits != null && (
+                              <span
+                                className={
+                                  isSelected
+                                    ? 'text-amber-800 font-medium bg-amber-50/80 px-1.5 py-0.5 rounded-md'
+                                    : 'text-amber-700 font-medium bg-amber-50 px-1.5 py-0.5 rounded-md'
+                                }
+                              >
+                                命中 {hits} 篇
+                              </span>
+                            )}
+                            <span className={isSelected ? 'text-gray-700' : 'text-gray-500'}>
+                              共 {formatNumber(topic.noteCount)} 篇
+                            </span>
+                            <span style={{ color: isSelected ? '#475569' : accent }}>
+                              ❤️ {formatNumber(topic.avgLikes)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           )}
         </aside>
 
@@ -516,42 +882,35 @@ export default function TopicAnalysis() {
                 );
               })}
             </div>
-            {/* 二级：当前模块下的视图（主题对比全屏时仍显示该组，便于退出后理解上下文） */}
-            {(() => {
-              const notesModule = mainModules[0];
-              const modelModule = mainModules[1];
-              const isNotesContext = viewMode !== 'confidence' && viewMode !== 'topicStructure';
-              const subTabs = isNotesContext ? notesModule.tabs : modelModule.tabs;
-              const subLabel = isNotesContext ? '笔记视图' : '模型视图';
-              return (
-                <div
-                  className={`flex flex-wrap items-center gap-2 ${isNoteSearchActive ? 'opacity-40 pointer-events-none select-none' : ''}`}
-                >
-                  <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mr-1 w-full sm:w-auto sm:mr-0">
-                    {subLabel}
-                  </span>
-                  {subTabs.map((tab) => {
-                    const TabIcon = tab.icon;
-                    const isOn = viewMode === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setViewMode(tab.id)}
-                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all shrink-0 border ${
-                          isOn
-                            ? 'bg-rose-500 text-white border-rose-500 shadow-md'
-                            : 'bg-white text-gray-700 border-gray-100 hover:bg-rose-50 hover:border-rose-100'
-                        }`}
-                      >
-                        <TabIcon className="w-4 h-4 shrink-0 opacity-90" aria-hidden />
-                        <span className="whitespace-nowrap">{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            {/* 二级：仅保留笔记模块分页；模型模块点击后直接展示推断诊断 */}
+            {activeMain === 'notes' && (
+              <div
+                className={`flex flex-wrap items-center gap-2 ${isNoteSearchActive ? 'opacity-40 pointer-events-none select-none' : ''}`}
+              >
+                <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mr-1 w-full sm:w-auto sm:mr-0">
+                  笔记视图
+                </span>
+                {mainModules[0].tabs.map((tab) => {
+                  const TabIcon = tab.icon;
+                  const isOn = viewMode === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setViewMode(tab.id)}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all shrink-0 border ${
+                        isOn
+                          ? 'bg-rose-500 text-white border-rose-500 shadow-md'
+                          : 'bg-white text-gray-700 border-gray-100 hover:bg-rose-50 hover:border-rose-100'
+                      }`}
+                    >
+                      <TabIcon className="w-4 h-4 shrink-0 opacity-90" aria-hidden />
+                      <span className="whitespace-nowrap">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* 与评论分析页中间主卡片同构：圆角、描边、滚动在内层 */}
@@ -582,9 +941,8 @@ export default function TopicAnalysis() {
                       {viewMode === 'bertopic' && (
                         <SubTopicStructureView topics={filteredTopics} allRecords={allRecords} />
                       )}
-                      {viewMode === 'topicStructure' && <TopicStructureTrainingView stats={topicStats} />}
                       {viewMode === 'confidence' && (
-                        <ModelQualityDashboard topics={filteredTopics} allRecords={allRecords} />
+                        <ModelQualityDashboard topics={topics} allRecords={allRecords} />
                       )}
                       {viewMode === 'geo' && (
                         <GeoDistributionView data={ipDistData} records={allRecords} topics={filteredTopics} />
@@ -635,8 +993,6 @@ export default function TopicAnalysis() {
 // 子组件
 // ================================================================
 
-const NOTE_SEARCH_DISPLAY_CAP = 500;
-
 function NoteSearchResults({
   records,
   query,
@@ -650,95 +1006,108 @@ function NoteSearchResults({
   onOpenNote: (noteId: string) => void;
   onOpenTopic: (t: Topic) => void;
 }) {
-  const shown = records.slice(0, NOTE_SEARCH_DISPLAY_CAP);
-  const truncated = records.length > NOTE_SEARCH_DISPLAY_CAP;
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: records.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 172,
+    overscan: 6,
+    getItemKey: (index) => records[index]?.note_id ?? index,
+  });
 
   if (records.length === 0) {
     return <EmptyState type="search" title="无命中笔记" description="请更换关键词或缩短检索词" />;
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+    <div className="space-y-4 flex flex-col min-h-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 shrink-0">
         <h3 className="text-base font-semibold text-gray-800">搜索结果</h3>
         <p className="text-xs text-gray-500">
-          已按点赞数排序；点击卡片打开笔记，点击主题标签可在右侧查看该主题
-          {truncated && (
-            <span className="text-amber-700 font-medium"> · 仅展示前 {NOTE_SEARCH_DISPLAY_CAP} 条</span>
-          )}
+          已按点赞数排序；共 {records.length.toLocaleString()} 条，可滚动浏览全部；点击卡片打开笔记，点击主题标签可在右侧查看该主题
         </p>
       </div>
-      <ul className="space-y-3">
-        {shown.map((r) => {
-          const topic = topicByName.get(r.macro_topic);
-          const title = r.title?.trim() || '（无标题）';
-          const snippetSource = r.content?.trim() || r.desc?.trim() || r.segmented_text || '';
-          const snippet = excerptAroundQuery(snippetSource, query, 64);
-          const q = query.trim();
-          const markSnippet = () => {
-            if (!q) return <span className="text-gray-600 text-sm leading-relaxed">{snippet || '—'}</span>;
-            const i = snippet.toLowerCase().indexOf(q.toLowerCase());
-            if (i < 0) return <span className="text-gray-600 text-sm leading-relaxed">{snippet}</span>;
+      <div
+        ref={scrollParentRef}
+        className="max-h-[min(65vh,620px)] overflow-y-auto overflow-x-hidden rounded-xl border border-gray-100/80 pr-1"
+      >
+        <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+          {rowVirtualizer.getVirtualItems().map((vRow) => {
+            const r = records[vRow.index];
+            const topic = topicByName.get(r.macro_topic);
+            const title = r.title?.trim() || '（无标题）';
+            const snippetSource = r.content?.trim() || r.desc?.trim() || r.segmented_text || '';
+            const snippet = excerptAroundQuery(snippetSource, query, 64);
+            const q = query.trim();
+            const markSnippet = () => {
+              if (!q) return <span className="text-gray-600 text-sm leading-relaxed">{snippet || '—'}</span>;
+              const i = snippet.toLowerCase().indexOf(q.toLowerCase());
+              if (i < 0) return <span className="text-gray-600 text-sm leading-relaxed">{snippet}</span>;
+              return (
+                <span className="text-gray-600 text-sm leading-relaxed">
+                  {snippet.slice(0, i)}
+                  <mark className="bg-amber-200/90 text-gray-900 rounded px-0.5">{snippet.slice(i, i + q.length)}</mark>
+                  {snippet.slice(i + q.length)}
+                </span>
+              );
+            };
+            const markTitle = () => {
+              if (!q) return <span className="font-medium text-gray-800">{title}</span>;
+              const tl = title;
+              const i = tl.toLowerCase().indexOf(q.toLowerCase());
+              if (i < 0) return <span className="font-medium text-gray-800">{tl}</span>;
+              return (
+                <span className="font-medium text-gray-800">
+                  {tl.slice(0, i)}
+                  <mark className="bg-amber-200/90 text-gray-900 rounded px-0.5">{tl.slice(i, i + q.length)}</mark>
+                  {tl.slice(i + q.length)}
+                </span>
+              );
+            };
             return (
-              <span className="text-gray-600 text-sm leading-relaxed">
-                {snippet.slice(0, i)}
-                <mark className="bg-amber-200/90 text-gray-900 rounded px-0.5">{snippet.slice(i, i + q.length)}</mark>
-                {snippet.slice(i + q.length)}
-              </span>
-            );
-          };
-          const markTitle = () => {
-            if (!q) return <span className="font-medium text-gray-800">{title}</span>;
-            const tl = title;
-            const i = tl.toLowerCase().indexOf(q.toLowerCase());
-            if (i < 0) return <span className="font-medium text-gray-800">{tl}</span>;
-            return (
-              <span className="font-medium text-gray-800">
-                {tl.slice(0, i)}
-                <mark className="bg-amber-200/90 text-gray-900 rounded px-0.5">{tl.slice(i, i + q.length)}</mark>
-                {tl.slice(i + q.length)}
-              </span>
-            );
-          };
-          return (
-            <li key={r.note_id}>
-              <div className="rounded-2xl border border-gray-100 bg-gradient-to-br from-white to-rose-50/20 p-4 shadow-sm hover:border-rose-200/80 transition-colors">
-                <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => onOpenNote(r.note_id)}
-                    className="text-left flex-1 min-w-0"
-                  >
-                    {markTitle()}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => topic && onOpenTopic(topic)}
-                    disabled={!topic}
-                    className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={topic ? '在右侧面板打开该主题' : undefined}
-                  >
-                    {r.macro_topic}
-                  </button>
-                </div>
-                <div className="mb-2">{markSnippet()}</div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
-                  <span>❤️ {formatNumber(r.liked_count || 0)}</span>
-                  <span>微观 #{r.micro_topic_id}</span>
-                  {r.confidence > 0 && <span>置信 {(r.confidence * 100).toFixed(0)}%</span>}
-                  <button
-                    type="button"
-                    onClick={() => onOpenNote(r.note_id)}
-                    className="ml-auto text-rose-600 font-medium hover:underline"
-                  >
-                    查看笔记
-                  </button>
+              <div
+                key={vRow.key}
+                className="absolute left-0 top-0 w-full pb-3"
+                style={{ transform: `translateY(${vRow.start}px)` }}
+              >
+                <div className="rounded-2xl border border-gray-100 bg-gradient-to-br from-white to-rose-50/20 p-4 shadow-sm hover:border-rose-200/80 transition-colors">
+                  <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenNote(r.note_id)}
+                      className="text-left flex-1 min-w-0"
+                    >
+                      {markTitle()}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => topic && onOpenTopic(topic)}
+                      disabled={!topic}
+                      className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={topic ? '在右侧面板打开该主题' : undefined}
+                    >
+                      {r.macro_topic}
+                    </button>
+                  </div>
+                  <div className="mb-2">{markSnippet()}</div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
+                    <span>❤️ {formatNumber(r.liked_count || 0)}</span>
+                    <span>微观 #{r.micro_topic_id}</span>
+                    {r.confidence > 0 && <span>置信 {(r.confidence * 100).toFixed(0)}%</span>}
+                    <button
+                      type="button"
+                      onClick={() => onOpenNote(r.note_id)}
+                      className="ml-auto text-rose-600 font-medium hover:underline"
+                    >
+                      查看笔记
+                    </button>
+                  </div>
                 </div>
               </div>
-            </li>
-          );
-        })}
-      </ul>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -752,15 +1121,31 @@ function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; all
   const highConfN = useMemo(() => allRecords.filter((r) => r.confidence > 0.7).length, [allRecords]);
 
   const macroPieData = useMemo(() => {
+    const confByMacro = new Map<string, { sum: number; n: number }>();
+    for (const r of allRecords) {
+      if (isNoiseTopicRecord(r)) continue;
+      const key = normalizedMacroForSankey(r);
+      const cur = confByMacro.get(key) ?? { sum: 0, n: 0 };
+      const c = typeof r.confidence === 'number' && !Number.isNaN(r.confidence) ? r.confidence : 0;
+      cur.sum += c;
+      cur.n += 1;
+      confByMacro.set(key, cur);
+    }
     const validTopics = topics.filter((t) => !isNoiseMacroLabel(t.name));
     const sum = validTopics.reduce((s, t) => s + t.noteCount, 0);
-    return validTopics.map((t, i) => ({
-      name: t.name,
-      value: t.noteCount,
-      fill: MACRO_ANCHOR_COLORS[t.name] ?? SUB_OVERVIEW_FALLBACK_COLORS[i % SUB_OVERVIEW_FALLBACK_COLORS.length],
-      pctLabel: sum > 0 ? ((t.noteCount / sum) * 100).toFixed(1) : '0.0',
-    }));
-  }, [topics]);
+    return validTopics.map((t) => {
+      const key = t.name.trim();
+      const agg = confByMacro.get(key) ?? { sum: 0, n: 0 };
+      const avgConfidence = agg.n > 0 ? agg.sum / agg.n : 0;
+      return {
+        name: t.name,
+        value: t.noteCount,
+        fill: macroTopicDisplayColor(t.name),
+        pctLabel: sum > 0 ? ((t.noteCount / sum) * 100).toFixed(1) : '0.0',
+        avgConfidence,
+      };
+    });
+  }, [topics, allRecords]);
 
   const coverageStats = useMemo(() => {
     const noise = allRecords.filter(isNoiseTopicRecord).length;
@@ -769,117 +1154,348 @@ function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; all
     return { noise, valid, pct };
   }, [allRecords, totalRecords]);
 
-  const coveragePie = useMemo(
-    () => [
-      { name: '有效样本', value: coverageStats.valid, fill: '#2ECC71' },
-      { name: '噪声等', value: Math.max(0, coverageStats.noise), fill: '#dfe6e9' },
-    ],
-    [coverageStats],
-  );
+  /** 内环：全量笔记的归类置信度分档 + 噪声类（与宏观主题外环形成「主题结构 × 置信度」对照） */
+  const confidenceInnerPie = useMemo(() => {
+    let hi = 0;
+    let mid = 0;
+    let low = 0;
+    let none = 0;
+    let noise = 0;
+    for (const r of allRecords) {
+      if (isNoiseTopicRecord(r)) {
+        noise++;
+        continue;
+      }
+      const c = typeof r.confidence === 'number' && !Number.isNaN(r.confidence) ? r.confidence : 0;
+      if (c >= 0.7) hi++;
+      else if (c >= 0.3) mid++;
+      else if (c > 0) low++;
+      else none++;
+    }
+    return [
+      { name: '高置信', value: hi, fill: '#059669' },
+      { name: '中置信', value: mid, fill: '#d97706' },
+      { name: '低置信', value: low, fill: '#ea580c' },
+      { name: '无置信度', value: none, fill: '#cbd5e1' },
+      { name: '噪声等', value: noise, fill: '#94a3b8' },
+    ].filter((e) => e.value > 0);
+  }, [allRecords]);
+
+  const sankeyData = useMemo(() => {
+    if (allRecords.length === 0) {
+      return {
+        nodes: [],
+        links: [] as Array<{ source: number; target: number; value: number }>,
+        microCount: 0,
+      };
+    }
+
+    const leftNodeName = '原始笔记';
+    const microTotals = new Map<number, number>();
+    const microToMacro = new Map<string, number>();
+
+    for (const r of allRecords) {
+      const microId = Number.isFinite(r.micro_topic_id) ? r.micro_topic_id : -1;
+      const macroName = normalizedMacroForSankey(r);
+      microTotals.set(microId, (microTotals.get(microId) || 0) + 1);
+      const key = `${microId}${SANKEY_PART_SEP}${macroName}`;
+      microToMacro.set(key, (microToMacro.get(key) || 0) + 1);
+    }
+
+    const macroSet = new Set<string>();
+    for (const r of allRecords) {
+      macroSet.add(normalizedMacroForSankey(r));
+    }
+
+    const macroList = sankeyOrderedMacroNames(macroSet);
+    const microList = [...microTotals.keys()].sort((a, b) => {
+      const pa = sankeyPrimaryMacroIndex(a, microToMacro, macroList);
+      const pb = sankeyPrimaryMacroIndex(b, microToMacro, macroList);
+      if (pa !== pb) return pa - pb;
+      const ca = microTotals.get(a) || 0;
+      const cb = microTotals.get(b) || 0;
+      /** 同主宏观下篇数少的在上、多的在下，避免细条被压在粗条下方导致跨线杂乱 */
+      if (ca !== cb) return ca - cb;
+      return a - b;
+    });
+
+    const nodes = [
+      { name: leftNodeName },
+      ...microList.map((id) => ({ name: microNodeLabel(id) })),
+      ...macroList.map((name) => ({ name })),
+    ];
+
+    const microIndex = new Map<number, number>();
+    microList.forEach((id, i) => microIndex.set(id, i + 1));
+    const macroStart = 1 + microList.length;
+    const macroIndex = new Map<string, number>();
+    macroList.forEach((name, i) => macroIndex.set(name, macroStart + i));
+
+    const links: Array<{ source: number; target: number; value: number }> = [];
+
+    microList.forEach((id) => {
+      const cnt = microTotals.get(id) || 0;
+      const target = microIndex.get(id);
+      if (cnt > 0 && target != null) {
+        links.push({ source: 0, target, value: cnt });
+      }
+    });
+
+    for (const [key, cnt] of microToMacro.entries()) {
+      if (cnt <= 0) continue;
+      const sep = key.indexOf(SANKEY_PART_SEP);
+      if (sep < 0) continue;
+      const microRaw = key.slice(0, sep);
+      const macroName = key.slice(sep + SANKEY_PART_SEP.length);
+      const microId = Number(microRaw);
+      const source = microIndex.get(microId);
+      const target = macroIndex.get(macroName);
+      if (source != null && target != null) {
+        links.push({ source, target, value: cnt });
+      }
+    }
+
+    return {
+      nodes,
+      links,
+      microCount: microList.length,
+    };
+  }, [allRecords]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-        <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-rose-50/20 p-4 sm:p-5 shadow-md">
-          <h4 className="font-semibold text-gray-800 text-sm mb-1">宏观主题分布</h4>
-          <p className="text-[11px] text-gray-400 mb-2">已排除宏观名称含「噪声」的类别；扇区大小为笔记篇数。</p>
-          {macroPieData.length === 0 ? (
-            <p className="text-sm text-gray-400 py-12 text-center">暂无有效宏观主题</p>
-          ) : (
-            <div className="h-[280px] w-full">
-              <ResponsiveContainerRC width="100%" height="100%">
-                <PieChartRC>
-                  <PieRC
-                    data={macroPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={56}
-                    outerRadius={92}
-                    paddingAngle={2}
-                  >
-                    {macroPieData.map((e) => (
+      <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-rose-50/20 p-4 sm:p-5 shadow-md">
+        <h4 className="font-semibold text-gray-800 text-sm mb-1">主题分布与置信度（合并视图）</h4>
+        <p className="text-[11px] text-gray-400 mb-2">
+          外环：各宏观主题篇数，点线引出环外标注该主题平均置信度与篇数占比。内环：置信度分档与噪声，点线引出至内外环间隙。分档与下方「高置信」阈值一致。
+        </p>
+        {macroPieData.length === 0 ? (
+          <p className="text-sm text-gray-400 py-12 text-center">暂无有效宏观主题</p>
+        ) : (
+          <div className="relative h-[min(420px,56vw)] min-h-[380px] w-full">
+            <ResponsiveContainerRC width="100%" height="100%">
+              <PieChartRC margin={{ top: 8, right: 108, bottom: 8, left: 108 }}>
+                <PieRC
+                  data={macroPieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={92}
+                  outerRadius={118}
+                  paddingAngle={2}
+                  labelLine={false}
+                  label={(p: {
+                    cx: number;
+                    cy: number;
+                    midAngle: number;
+                    innerRadius: number;
+                    outerRadius: number;
+                    name: string;
+                    value: number;
+                    percent: number;
+                    avgConfidence?: number;
+                    payload?: { avgConfidence?: number };
+                  }) => <MacroOutsideLeaderLabel {...p} />}
+                >
+                  {macroPieData.map((e) => (
+                    <CellRC key={e.name} fill={e.fill} />
+                  ))}
+                </PieRC>
+                <PieRC
+                  data={confidenceInnerPie.length > 0 ? confidenceInnerPie : [{ name: '—', value: 1, fill: '#f1f5f9' }]}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={54}
+                  outerRadius={76}
+                  stroke="#fff"
+                  strokeWidth={2}
+                  labelLine={false}
+                  label={(p: {
+                    cx: number;
+                    cy: number;
+                    midAngle: number;
+                    innerRadius: number;
+                    outerRadius: number;
+                    name: string;
+                    value: number;
+                    percent: number;
+                    payload?: { fill?: string; name?: string };
+                  }) => (p.name === '—' ? null : <ConfidenceBetweenRingsLeaderLabel {...p} />)}
+                >
+                  {(confidenceInnerPie.length > 0 ? confidenceInnerPie : [{ name: '—', value: 1, fill: '#f1f5f9' }]).map(
+                    (e) => (
                       <CellRC key={e.name} fill={e.fill} />
-                    ))}
-                  </PieRC>
-                  <TooltipRC
-                    content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: typeof macroPieData[number] }> }) => {
-                      if (!active || !payload?.length) return null;
-                      const p = payload[0].payload;
+                    ),
+                  )}
+                </PieRC>
+                <TooltipRC
+                  content={({
+                    active,
+                    payload,
+                  }: {
+                    active?: boolean;
+                    payload?: Array<{ payload: { name: string; value: number; avgConfidence?: number } }>;
+                  }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0].payload;
+                    const pct = totalRecords > 0 ? (p.value / totalRecords) * 100 : 0;
+                    const hasThemeConf = typeof p.avgConfidence === 'number';
+                    return (
+                      <div className="rounded-xl border border-rose-100/70 bg-white/95 shadow-lg px-3 py-2 text-xs">
+                        <div className="font-semibold text-gray-800">{p.name}</div>
+                        <div className="text-gray-600 mt-0.5">
+                          {formatNumber(p.value)} 篇（占全量 {pct.toFixed(1)}%）
+                        </div>
+                        {hasThemeConf ? (
+                          <div className="text-gray-600 mt-1">该主题平均置信度 {(p.avgConfidence! * 100).toFixed(1)}%</div>
+                        ) : null}
+                      </div>
+                    );
+                  }}
+                />
+              </PieChartRC>
+            </ResponsiveContainerRC>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-3xl sm:text-4xl font-bold text-slate-700 tabular-nums">
+                  {coverageStats.pct.toFixed(1)}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">有效样本覆盖率</div>
+              </div>
+            </div>
+          </div>
+        )}
+        {totalRecords > 0 && (
+          <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-gray-600 mt-2">
+            <span>
+              有效样本{' '}
+              <strong className="text-cyan-700 tabular-nums">{formatNumber(coverageStats.valid)}</strong> 篇
+            </span>
+            <span>
+              高置信(≥0.7){' '}
+              <strong className="text-emerald-700 tabular-nums">{formatNumber(highConfN)}</strong> 篇
+            </span>
+            <span>
+              噪声等 <strong className="text-gray-500 tabular-nums">{formatNumber(coverageStats.noise)}</strong> 篇
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-sky-50/30 p-4 sm:p-5 shadow-md">
+        <h4 className="font-semibold text-gray-800 text-sm mb-1">主题聚类流向（桑基图）</h4>
+        <p className="text-[11px] text-gray-400 mb-3">
+          从左到右：原始笔记 → 细分主题 → 宏观主题。带状宽度表示篇数；汇入宏观一侧为主题色，指向细分主题一侧为中性灰。
+        </p>
+        {sankeyData.nodes.length === 0 || sankeyData.links.length === 0 ? (
+          <p className="text-sm text-gray-400 py-12 text-center">暂无可绘制的流向数据</p>
+        ) : (
+          <div className="w-full max-w-[min(100%,780px)] mx-auto h-[520px] min-h-[520px] overflow-x-auto overflow-y-hidden overscroll-contain rounded-xl border border-slate-100/80 bg-white/40">
+            <ResponsiveContainerRC width="100%" height="100%" minHeight={520} className="[&_.recharts-surface]:overflow-visible">
+              <SankeyRC
+                data={sankeyData}
+                nameKey="name"
+                margin={{ top: 20, left: 88, right: 96, bottom: 20 }}
+                nodePadding={3}
+                nodeWidth={14}
+                linkCurvature={0.52}
+                iterations={64}
+                /** false：碰撞整理不按 y 重排节点，纵向顺序与 data.nodes 一致（同宏观组内细条在上） */
+                sort={false}
+                link={(linkProps: {
+                  sourceX: number;
+                  sourceY: number;
+                  targetX: number;
+                  targetY: number;
+                  sourceControlX: number;
+                  targetControlX: number;
+                  linkWidth: number;
+                  payload?: { target?: { name?: string } };
+                }) => <SankeyThemedLink {...linkProps} />}
+                node={(nodeProps: {
+                  x?: number;
+                  y?: number;
+                  width?: number;
+                  height?: number;
+                  payload?: { name?: string; value?: number; depth?: number };
+                }) => (
+                  <SankeyNodeWithLabel
+                    x={nodeProps.x ?? 0}
+                    y={nodeProps.y ?? 0}
+                    width={nodeProps.width ?? 0}
+                    height={nodeProps.height ?? 0}
+                    payload={nodeProps.payload}
+                  />
+                )}
+              >
+                <TooltipRC
+                  isAnimationActive={false}
+                  animationDuration={0}
+                  wrapperStyle={{ pointerEvents: 'none' }}
+                  content={({
+                    active,
+                    payload: tipPayload,
+                  }: {
+                    active?: boolean;
+                    payload?: Array<{
+                      name?: string;
+                      value?: number | string;
+                      payload?: {
+                        payload?: {
+                          source?: { name?: string };
+                          target?: { name?: string };
+                          value?: number;
+                          name?: string;
+                        };
+                      };
+                    }>;
+                  }) => {
+                    if (!active || !tipPayload?.length) return null;
+                    const row = tipPayload[0];
+                    const outer = row.payload as { payload?: { value?: number; source?: unknown; target?: unknown } } | undefined;
+                    const merged = outer?.payload;
+                    let vRaw = row.value;
+                    if (vRaw == null || vRaw === '') {
+                      vRaw = merged?.value;
+                    }
+                    const v = Number(vRaw ?? 0);
+                    if (
+                      merged &&
+                      merged.source &&
+                      merged.target &&
+                      typeof merged.source === 'object' &&
+                      typeof merged.target === 'object'
+                    ) {
+                      const s = String((merged.source as { name?: string }).name ?? '');
+                      const t = String((merged.target as { name?: string }).name ?? '');
                       return (
                         <div className="rounded-xl border border-rose-100/70 bg-white/95 shadow-lg px-3 py-2 text-xs">
-                          <div className="font-semibold text-gray-800">{p.name}</div>
-                          <div className="text-gray-600 mt-0.5">
-                            {formatNumber(p.value)} 篇（{p.pctLabel}%）
+                          <div className="font-semibold text-gray-800">
+                            {s} → {t}
                           </div>
+                          <div className="text-gray-600 mt-0.5">{formatNumber(v)} 篇</div>
                         </div>
                       );
-                    }}
-                  />
-                  <LegendRC wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-                </PieChartRC>
-              </ResponsiveContainerRC>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-rose-100/70 bg-gradient-to-br from-white to-slate-50/50 p-4 sm:p-5 shadow-md">
-          <h4 className="font-semibold text-gray-800 text-sm mb-1">数据覆盖率</h4>
-          <p className="text-[11px] text-gray-400 mb-2">
-            有效样本 = 非 <code className="text-[10px] bg-gray-50 px-0.5 rounded">is_noise</code> 且宏观名非噪声类。
-          </p>
-          <div className="relative h-[280px] w-full">
-            {totalRecords === 0 ? (
-              <p className="text-sm text-gray-400 py-12 text-center">暂无笔记行</p>
-            ) : (
-              <>
-                <ResponsiveContainerRC width="100%" height="100%">
-                  <PieChartRC>
-                    <PieRC
-                      data={coveragePie}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={72}
-                      outerRadius={96}
-                      stroke="#fff"
-                      strokeWidth={2}
-                    >
-                      {coveragePie.map((e) => (
-                        <CellRC key={e.name} fill={e.fill} />
-                      ))}
-                    </PieRC>
-                    <TooltipRC
-                      formatter={(v: number) => `${formatNumber(v)} 篇`}
-                      contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                    />
-                    <LegendRC wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-                  </PieChartRC>
-                </ResponsiveContainerRC>
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-3xl sm:text-4xl font-bold text-slate-700 tabular-nums">
-                      {coverageStats.pct.toFixed(1)}%
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">有效样本占比</div>
-                  </div>
-                </div>
-              </>
-            )}
+                    }
+                    const title =
+                      row.name ||
+                      String((merged as { name?: string } | undefined)?.name ?? '') ||
+                      String((outer as { name?: string } | undefined)?.name ?? '');
+                    return (
+                      <div className="rounded-xl border border-rose-100/70 bg-white/95 shadow-lg px-3 py-2 text-xs">
+                        <div className="font-semibold text-gray-800">{title}</div>
+                        <div className="text-gray-600 mt-0.5">{formatNumber(v)} 篇</div>
+                      </div>
+                    );
+                  }}
+                />
+              </SankeyRC>
+            </ResponsiveContainerRC>
           </div>
-          {totalRecords > 0 && (
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-xs text-gray-600 mt-2">
-              <span>
-                有效 <strong className="text-emerald-600 tabular-nums">{formatNumber(coverageStats.valid)}</strong> 篇
-              </span>
-              <span>
-                噪声等 <strong className="text-gray-500 tabular-nums">{formatNumber(coverageStats.noise)}</strong> 篇
-              </span>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
@@ -996,9 +1612,6 @@ function MacroWordCloudCard({
         </div>
         <span className="text-xs text-gray-400 shrink-0">{noteCount} 篇</span>
       </div>
-      <p className="text-[10px] text-gray-400 mb-2">
-        词频由宏观关键词与各微观主题关键词按位次加权累加（对齐训练侧词云思路，替代静态 PNG）。
-      </p>
       <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 min-h-[200px] py-3 content-center">
         {entries.map((e, idx) => {
           const t = (e.value - min) / span;
@@ -1026,103 +1639,174 @@ function MacroWordCloudCard({
   );
 }
 
-/** 合并原「关键词视图」与「微观主题」：左侧对齐 plot_keyword_comparison（同属宏观下的 micro_topic_id 汇总 Top 词），右侧对齐 plot_micro_topic_sizes（规模条 + T{id} 与前列关键词）。 */
-function MacroMicroMergedCard({ topic, accent }: { topic: Topic; accent: string }) {
+/** 宏观关键词横向条形图 + 代表词（与词云页同主题左右对照） */
+function MacroKeywordSummaryBlock({ topic, accent }: { topic: Topic; accent: string }) {
   const ranked = buildWordCloudEntriesForTopic(topic).slice(0, 14);
-  const maxW = ranked[0]?.value ?? 1;
-  const micros = [...topic.microTopics].sort((a, b) => b.noteCount - a.noteCount);
-  const maxCount = Math.max(...micros.map((m) => m.noteCount), 1);
+  const keywordBars = useMemo(
+    () =>
+      ranked
+        .slice(0, 12)
+        .map((row) => ({ ...row }))
+        .reverse()
+        .map((row) => ({
+          ...row,
+          short: row.name.length > 8 ? `${row.name.slice(0, 8)}…` : row.name,
+        })),
+    [ranked],
+  );
+  const maxKeywordWeight = keywordBars.length ? Math.max(...keywordBars.map((k) => k.value), 1) : 1;
 
   return (
-    <div className="rounded-2xl border border-gray-100/90 bg-white p-4 sm:p-5 shadow-sm">
-      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-rose-50/80">
-        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: accent }} />
-        <h4 className="font-semibold text-sm sm:text-base text-gray-800 truncate flex-1 min-w-[120px]">{topic.name}</h4>
-        <span className="text-xs text-gray-500 shrink-0">
-          {topic.microTopics.length} 个微观 · {formatNumber(topic.noteCount)} 篇
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div>
-          <h5 className="text-xs font-semibold text-gray-600 mb-1">宏观关键词汇总</h5>
-          <p className="text-[10px] text-gray-400 mb-3 leading-relaxed">
-            与 final_pro_topics 中同属本宏观的 <code className="text-[10px] bg-gray-100 px-1 rounded">micro_topic_id</code>{' '}
-            关键词按位次加权累加（对应脚本中对各 tid 的 get_topic 词条聚合）。
-          </p>
-          <div className="space-y-1.5">
-            {ranked.length === 0 ? (
-              <p className="text-xs text-gray-400">无关键词数据</p>
-            ) : (
-              ranked.map((row, idx) => {
-                const pct = maxW > 0 ? (row.value / maxW) * 100 : 0;
-                const alpha = 0.38 + (row.value / maxW) * 0.62;
-                return (
-                  <div key={`${row.name}-${idx}`} className="flex items-center gap-2 text-xs">
-                    <span className="w-14 sm:w-[4.5rem] shrink-0 text-gray-600 truncate text-right" title={row.name}>
-                      {row.name}
-                    </span>
-                    <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden min-w-0">
-                      <div
-                        className="h-full rounded-md"
-                        style={{ width: `${pct}%`, backgroundColor: accent, opacity: alpha }}
-                      />
+    <div className="rounded-xl border border-gray-100 bg-gradient-to-br from-white to-rose-50/20 p-4 shadow-sm flex flex-col min-h-0 h-full">
+      <h5 className="text-xs font-semibold text-gray-600 mb-3">宏观关键词汇总</h5>
+      {keywordBars.length === 0 ? (
+        <p className="text-xs text-gray-400">无关键词数据</p>
+      ) : (
+        <div className="flex-1 min-h-[260px] h-[min(340px,42vh)] w-full rounded-xl border border-gray-100/80 bg-white/80 p-2">
+          <ResponsiveContainerRC width="100%" height="100%">
+            <BarChartRC layout="vertical" data={keywordBars} margin={{ top: 6, right: 36, left: 4, bottom: 6 }}>
+              <CartesianGridRC strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+              <XAxisRC type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+              <YAxisRC type="category" dataKey="short" width={68} tick={{ fontSize: 11, fill: '#475569' }} />
+              <TooltipRC
+                content={({ active, payload }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const row = payload[0].payload as { name: string; value: number };
+                  return (
+                    <div className="rounded-xl border border-gray-100 bg-white/95 px-3 py-2 text-xs shadow-lg">
+                      <p className="font-semibold text-gray-800">{row.name}</p>
+                      <p className="text-gray-600 mt-1">累积权重 {row.value.toFixed(1)}</p>
                     </div>
-                    <span className="w-11 shrink-0 text-gray-400 tabular-nums text-right">{row.value.toFixed(1)}</span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-          {topic.keywords.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-50">
-              <p className="text-[10px] text-gray-400 mb-2">表内宏观代表词（CSV keywords 列合并）</p>
-              <div className="flex flex-wrap gap-1.5">
-                {topic.keywords.slice(0, 10).map((kw) => (
-                  <span
-                    key={kw}
-                    className="px-2 py-0.5 rounded-full text-[11px] font-medium"
-                    style={{ backgroundColor: `${accent}1f`, color: accent }}
-                  >
-                    {kw}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+                  );
+                }}
+              />
+              <BarRC dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={20}>
+                {keywordBars.map((row) => {
+                  const alpha = 0.4 + 0.6 * (row.value / maxKeywordWeight);
+                  return <CellRC key={`${topic.id}-${row.name}`} fill={accent} fillOpacity={alpha} />;
+                })}
+              </BarRC>
+            </BarChartRC>
+          </ResponsiveContainerRC>
         </div>
+      )}
+      {topic.keywords.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <p className="text-[10px] text-gray-500 mb-2">代表词</p>
+          <div className="flex flex-wrap gap-1.5">
+            {topic.keywords.slice(0, 10).map((kw) => (
+              <span
+                key={kw}
+                className="px-2 py-0.5 rounded-full text-[11px] font-medium"
+                style={{ backgroundColor: `${accent}1f`, color: accent }}
+              >
+                {kw}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
+/** 全部宏观下的微观主题合并为一张横向条形图（同色表示所属宏观） */
+function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
+  const { rows, legendTopics, maxVal } = useMemo(() => {
+    type Row = {
+      key: string;
+      short: string;
+      macro: string;
+      microId: number;
+      value: number;
+      fill: string;
+      kw: string;
+    };
+    const out: Row[] = [];
+    for (const t of topics) {
+      const fill = macroTopicDisplayColor(t.name);
+      for (const mt of t.microTopics) {
+        const macro = t.name;
+        const macroShort = macro.length > 9 ? `${macro.slice(0, 8)}…` : macro;
+        const short = `${macroShort} · T${mt.id}`;
+        out.push({
+          key: `${t.id}-${mt.id}`,
+          short: short.length > 26 ? `${short.slice(0, 24)}…` : short,
+          macro,
+          microId: mt.id,
+          value: mt.noteCount,
+          fill,
+          kw: mt.keywords.slice(0, 5).join('、') || '—',
+        });
+      }
+    }
+    out.sort((a, b) => b.value - a.value);
+    const mv = out.length ? Math.max(...out.map((r) => r.value), 1) : 1;
+    const leg = topics.filter((t) => t.microTopics.length > 0);
+    return { rows: out, legendTopics: leg, maxVal: mv };
+  }, [topics]);
+
+  const chartHeight = Math.min(Math.max(rows.length * 22 + 88, 180), 680);
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-100/90 bg-white p-6 shadow-sm text-center text-sm text-gray-400">
+        暂无微观主题数据
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-100/90 bg-white p-3 sm:p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div>
-          <h5 className="text-xs font-semibold text-gray-600 mb-1">微观主题规模</h5>
-          <p className="text-[10px] text-gray-400 mb-3 leading-relaxed">
-            按文档数排序；标签形如 <code className="text-[10px] bg-gray-100 px-1 rounded">T&lt;micro_topic_id&gt;</code>，附 BERTopic 侧代表词（与脚本条形图旁「Tid: 词1, 词2…」一致）。
-          </p>
-          <div className="space-y-2 max-h-[min(480px,55vh)] overflow-y-auto overscroll-contain pr-1">
-            {micros.length === 0 ? (
-              <p className="text-xs text-gray-400">暂无微观主题行</p>
-            ) : (
-              micros.map((mt) => {
-                const pct = maxCount > 0 ? (mt.noteCount / maxCount) * 100 : 0;
-                const topKw = mt.keywords.slice(0, 5).join('、') || '—';
+          <h4 className="text-sm font-semibold text-gray-800">全部分类 · 微观主题规模</h4>
+          <p className="text-[10px] text-gray-500 mt-0.5">按篇数降序；条形色块与左侧宏观主题一致。</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 max-w-[min(100%,520px)]">
+          {legendTopics.map((t) => (
+            <span key={t.id} className="inline-flex items-center gap-1.5 text-[10px] text-gray-600">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: macroTopicDisplayColor(t.name) }} />
+              <span className="truncate max-w-[9rem]">{t.name}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="w-full min-w-0 overflow-x-auto">
+        <ResponsiveContainerRC width="100%" height={chartHeight}>
+          <BarChartRC layout="vertical" data={rows} margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+            <CartesianGridRC strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+            <XAxisRC
+              type="number"
+              domain={[0, maxVal]}
+              tick={{ fontSize: 10, fill: '#94a3b8' }}
+              tickFormatter={(v: number) => formatNumber(v)}
+            />
+            <YAxisRC type="category" dataKey="short" width={148} tick={{ fontSize: 10, fill: '#475569' }} interval={0} />
+            <TooltipRC
+              content={({ active, payload }: any) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as (typeof rows)[0];
                 return (
-                  <div key={mt.id} className="rounded-lg border border-gray-100 bg-gradient-to-r from-gray-50/80 to-white p-2.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[11px] font-mono font-semibold text-gray-600 w-10 shrink-0">T{mt.id}</span>
-                      <div className="flex-1 h-2.5 bg-white rounded-full overflow-hidden border border-gray-100/80 min-w-0">
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: accent }} />
-                      </div>
-                      <span className="text-[11px] text-gray-600 w-11 text-right shrink-0 tabular-nums">{mt.noteCount}</span>
-                      <span className="text-[10px] text-gray-400 w-4 shrink-0">篇</span>
-                    </div>
-                    <p className="text-[11px] text-gray-600 leading-snug pl-12 line-clamp-2" title={topKw}>
-                      {topKw}
+                  <div className="rounded-xl border border-gray-100 bg-white/95 px-3 py-2 text-xs shadow-lg max-w-[min(90vw,320px)]">
+                    <p className="font-semibold text-gray-800">{row.macro}</p>
+                    <p className="text-gray-600 mt-0.5">
+                      T{row.microId} · {formatNumber(row.value)} 篇
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-1.5 leading-snug line-clamp-4" title={row.kw}>
+                      {row.kw}
                     </p>
                   </div>
                 );
-              })
-            )}
-          </div>
-        </div>
+              }}
+            />
+            <BarRC dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
+              {rows.map((r) => (
+                <CellRC key={r.key} fill={r.fill} fillOpacity={0.82} />
+              ))}
+            </BarRC>
+          </BarChartRC>
+        </ResponsiveContainerRC>
       </div>
     </div>
   );
@@ -1136,7 +1820,6 @@ function SubTopicStructureView({
   allRecords: TopicRecord[];
 }) {
   const [subView, setSubView] = useState<'micro' | 'data' | 'wordcloud'>('data');
-  const CHART_COLORS = ['#f43f5e', '#ec4899', '#8b5cf6', '#06b6d4', '#22c55e', '#14b8a6', '#f59e0b', '#ef4444', '#6366f1', '#a855f7'];
 
   return (
     <div>
@@ -1172,24 +1855,26 @@ function SubTopicStructureView({
 
       {(subView === 'micro' || subView === 'wordcloud') && (
         <div key={subView} className="subtopic-chart-panel-enter">
-          {subView === 'micro' && (
-            <div className="space-y-5 sm:space-y-6">
-              {topics.map((topic, i) => (
-                <MacroMicroMergedCard key={topic.id} topic={topic} accent={CHART_COLORS[i % CHART_COLORS.length]} />
-              ))}
-            </div>
-          )}
+          {subView === 'micro' && <MacroMicroUnifiedChart topics={topics} />}
           {subView === 'wordcloud' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {topics.map((topic, i) => (
-                <MacroWordCloudCard
-                  key={topic.id}
-                  title={topic.name}
-                  color={CHART_COLORS[i % CHART_COLORS.length]}
-                  entries={buildWordCloudEntriesForTopic(topic)}
-                  noteCount={topic.noteCount}
-                />
-              ))}
+            <div className="space-y-8">
+              {topics.map((topic) => {
+                const accent = macroTopicDisplayColor(topic.name);
+                return (
+                  <div
+                    key={topic.id}
+                    className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch"
+                  >
+                    <MacroWordCloudCard
+                      title={topic.name}
+                      color={accent}
+                      entries={buildWordCloudEntriesForTopic(topic)}
+                      noteCount={topic.noteCount}
+                    />
+                    <MacroKeywordSummaryBlock topic={topic} accent={accent} />
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

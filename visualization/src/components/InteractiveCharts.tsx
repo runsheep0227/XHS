@@ -20,6 +20,7 @@ import {
 import { Download, X, CheckSquare, Square, Info, ChevronDown, FileSpreadsheet, FileText, Table2 } from 'lucide-react'
 import { Topic, TopicRecord, Note } from '../data/topicData'
 import { formatNumber } from '../utils/responsive'
+import { macroTopicDisplayColor } from '../theme/macroTopicColors'
 
 // recharts components typed as any to avoid TS version conflicts
 const XAxisAny = XAxis as any
@@ -209,7 +210,6 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
   const [intervalMetric, setIntervalMetric] = useState<CompareIntervalMetric>('likes')
 
   const selectedTopics = topics.filter(t => selected.has(t.id))
-  const COLORS = ['#f43f5e', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899']
 
   const toggleTopic = (id: number) => {
     const next = new Set(selected)
@@ -301,22 +301,38 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
         <div className="flex flex-wrap gap-2">
           {topics.map(topic => {
             const isSel = selected.has(topic.id)
+            const topicColor = macroTopicDisplayColor(topic.name)
             return (
               <button
                 key={topic.id}
                 onClick={() => toggleTopic(topic.id)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all border-2 ${
                   isSel
-                    ? 'bg-gradient-to-r from-rose-50 to-pink-50 border-rose-400 text-rose-700 shadow-md shadow-rose-100/50 ring-1 ring-rose-100/60'
+                    ? 'shadow-md ring-1'
                     : 'bg-white/80 border-gray-100 text-gray-500 hover:border-rose-200 hover:bg-rose-50/40'
                 }`}
+                style={
+                  isSel
+                    ? {
+                        borderColor: topicColor,
+                        background: `linear-gradient(135deg, ${topicColor}18 0%, ${topicColor}0d 100%)`,
+                        boxShadow: `0 4px 14px -4px ${topicColor}55`,
+                        color: '#334155',
+                      }
+                    : undefined
+                }
               >
                 {isSel
-                  ? <CheckSquare className="w-4 h-4 text-rose-500 shrink-0" />
+                  ? <CheckSquare className="w-4 h-4 shrink-0" style={{ color: topicColor }} />
                   : <Square className="w-4 h-4 shrink-0" />
                 }
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: topicColor }}
+                  aria-hidden
+                />
                 <span className="max-w-[100px] truncate">{topic.name}</span>
-                <span className={`text-xs ${isSel ? 'text-rose-400' : 'text-gray-400'}`}>
+                <span className={`text-xs ${isSel ? '' : 'text-gray-400'}`} style={isSel ? { color: topicColor } : undefined}>
                   {topic.noteCount}篇
                 </span>
               </button>
@@ -327,18 +343,20 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
 
       {/* ── 已选主题统计卡片 ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {selectedTopics.map((t, i) => (
+        {selectedTopics.map((t) => {
+          const c = macroTopicDisplayColor(t.name)
+          return (
           <div
             key={t.id}
-            className="rounded-xl p-3 border-2 cursor-pointer transition-all hover:shadow-lg hover:shadow-rose-100/40 hover:-translate-y-0.5"
-            style={{ borderColor: COLORS[i % COLORS.length], backgroundColor: `${COLORS[i % COLORS.length]}10` }}
+            className="rounded-xl p-3 border-2 cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5"
+            style={{ borderColor: c, backgroundColor: `${c}10`, boxShadow: `0 8px 24px -12px ${c}44` }}
             onClick={() => {
               const notes = toNotes(t)
               setShowNoteModal({ topic: t, notes })
             }}
           >
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c }} />
               <span className="font-semibold text-gray-700 text-sm truncate">{t.name}</span>
             </div>
             <div className="grid grid-cols-2 gap-1 text-xs text-gray-600">
@@ -349,7 +367,8 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
             </div>
             <p className="text-xs text-gray-400 mt-1.5">{t.noteCount} 篇笔记 · 点击查看笔记</p>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── 图表区域：雷达画像 + 互动区间折线（可切换维度）── */}
@@ -367,17 +386,20 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
                 <PolarRadiusAxisAny angle={45} domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
                 <TooltipAny />
                 <LegendAny wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />
-                {selectedTopics.map((t, i) => (
-                  <RadarAny
-                    key={t.id}
-                    name={topicShortLabels[i] || t.name}
-                    dataKey={`s${i}`}
-                    stroke={COLORS[i % COLORS.length]}
-                    fill={COLORS[i % COLORS.length]}
-                    fillOpacity={0.2}
-                    strokeWidth={2}
-                  />
-                ))}
+                {selectedTopics.map((t, i) => {
+                  const c = macroTopicDisplayColor(t.name)
+                  return (
+                    <RadarAny
+                      key={t.id}
+                      name={topicShortLabels[i] || t.name}
+                      dataKey={`s${i}`}
+                      stroke={c}
+                      fill={c}
+                      fillOpacity={0.2}
+                      strokeWidth={2}
+                    />
+                  )
+                })}
               </RadarChartAny>
             </ResponsiveContainerAny>
           </div>
@@ -437,18 +459,21 @@ export function CompareView({ topics, onBack }: CompareViewProps) {
                   }}
                 />
                 <LegendAny wrapperStyle={{ fontSize: 11 }} />
-                {selectedTopics.map((t, i) => (
-                  <LineAny
-                    key={t.id}
-                    type="monotone"
-                    dataKey={`s${i}`}
-                    name={topicShortLabels[i] || t.name}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={2}
-                    dot={{ r: 3, strokeWidth: 1, fill: '#fff' }}
-                    activeDot={{ r: 5 }}
-                  />
-                ))}
+                {selectedTopics.map((t, i) => {
+                  const c = macroTopicDisplayColor(t.name)
+                  return (
+                    <LineAny
+                      key={t.id}
+                      type="monotone"
+                      dataKey={`s${i}`}
+                      name={topicShortLabels[i] || t.name}
+                      stroke={c}
+                      strokeWidth={2}
+                      dot={{ r: 3, strokeWidth: 1, fill: '#fff' }}
+                      activeDot={{ r: 5 }}
+                    />
+                  )
+                })}
               </LineChartAny>
             </ResponsiveContainerAny>
           </div>

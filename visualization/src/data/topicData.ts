@@ -5,6 +5,7 @@
 //   - content/rawdata/*.json（按 note_id 合并，补互动/标签/IP/类型）
 // 开发态：content / comment 均由 vite.config 挂在与前端相同的端口（默认 1306），请求使用同源 ''。
 // 生产构建若前后端不同源，可单独设置 VITE_CONTENT_SERVER 为数据接口根 URL（须自行托管相同路径）。
+// loadTopicCSV() 在单次页面会话内缓存结果，主题页与评论页共用，避免重复拉取与合并。
 // ============================================================
 
 function resolveContentServerBase(): string {
@@ -173,11 +174,14 @@ function parseCSVLine(line: string): string[] {
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split('\n')
   if (lines.length < 2) return []
-  const headers = parseCSVLine(lines[0])
+  const headers = parseCSVLine(lines[0]).map(h => h.replace(/^\ufeff/g, '').trim())
   return lines.slice(1).map(line => {
     const values = parseCSVLine(line)
     const row: Record<string, string> = {}
-    headers.forEach((h, i) => { row[h.trim()] = (values[i] || '').trim() })
+    headers.forEach((h, i) => {
+      if (!h) return
+      row[h] = (values[i] || '').trim()
+    })
     return row
   })
 }
@@ -223,18 +227,23 @@ async function fetchAllRawNotesMap(manifest?: Manifest): Promise<{
   const m = manifest ?? (await fetchManifest())
   const rawFiles = (m?.rawdata || []).filter((f) => f.endsWith('.json'))
   const byId = new Map<string, RawNote>()
-  for (const file of rawFiles) {
-    try {
-      const resp = await fetch(`${CONTENT_SERVER}/rawdata/${encodeURIComponent(file)}`)
-      if (!resp.ok) continue
-      const chunk: unknown = await resp.json()
-      if (!Array.isArray(chunk)) continue
-      for (const item of chunk) {
-        const n = item as RawNote
-        if (n?.note_id) byId.set(String(n.note_id).trim(), n)
+  const chunks = await Promise.all(
+    rawFiles.map(async (file) => {
+      try {
+        const resp = await fetch(`${CONTENT_SERVER}/rawdata/${encodeURIComponent(file)}`)
+        if (!resp.ok) return [] as unknown[]
+        const chunk: unknown = await resp.json()
+        return Array.isArray(chunk) ? chunk : []
+      } catch {
+        console.warn(`[DataLoader] 跳过 raw 文件: ${file}`)
+        return [] as unknown[]
       }
-    } catch {
-      console.warn(`[DataLoader] 跳过 raw 文件: ${file}`)
+    }),
+  )
+  for (let i = 0; i < rawFiles.length; i++) {
+    for (const item of chunks[i] || []) {
+      const n = item as RawNote
+      if (n?.note_id) byId.set(String(n.note_id).trim(), n)
     }
   }
   return { map: byId, fileCount: rawFiles.length }
@@ -244,13 +253,45 @@ async function fetchAllRawNotesMap(manifest?: Manifest): Promise<{
 // 数据加载（关联合并）
 // ============================================================
 
+let topicCsvCache: {
+  records: TopicRecord[]
+  meta: TopicDataLoadMeta | null
+} | null = null
+let topicCsvInflight: Promise<{
+  records: TopicRecord[]
+  meta: TopicDataLoadMeta | null
+}> | null = null
+
+/** 强制下次重新拉取主题表（一般无需调用；热替换数据文件时可调试用） */
+export function invalidateTopicCsvCache(): void {
+  topicCsvCache = null
+  topicCsvInflight = null
+}
+
 /**
  * 加载 final_pro_topics.csv 并关联合并原始笔记互动数据
  * - 字段映射：macro_topic_name → macro_topic
  * - 字段映射：mapping_confidence → confidence
  * - 按 note_id 与 rawdata JSON 关联合并（补全 liked_count 等字段）
+ * - 全应用共享同一份内存结果，避免主题页与评论页重复 IO/解析
  */
 export async function loadTopicCSV(): Promise<{
+  records: TopicRecord[]
+  meta: TopicDataLoadMeta | null
+}> {
+  if (topicCsvCache) return topicCsvCache
+  if (topicCsvInflight) return topicCsvInflight
+  topicCsvInflight = loadTopicCSVOnce()
+  try {
+    const r = await topicCsvInflight
+    topicCsvCache = r
+    return r
+  } finally {
+    topicCsvInflight = null
+  }
+}
+
+async function loadTopicCSVOnce(): Promise<{
   records: TopicRecord[]
   meta: TopicDataLoadMeta | null
 }> {
@@ -278,8 +319,8 @@ export async function loadTopicCSV(): Promise<{
 
     let rowsJoinedWithRaw = 0
     const records: TopicRecord[] = rows.map(row => {
-      // 从 CSV 读取 BERTopic 分类结果
-      const noteId: string = row['note_id'] || ''
+      // 从 CSV 读取 BERTopic 分类结果（note_id 与 comment/rawdata 对齐须 trim，且兼容 UTF-8 BOM 表头）
+      const noteId: string = (row['note_id'] || '').trim()
       const raw = rawMap.get(noteId)
       if (raw) rowsJoinedWithRaw += 1
 

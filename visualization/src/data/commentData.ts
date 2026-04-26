@@ -26,6 +26,8 @@ export interface CommentAnalysis {
   sentimentScore: number; // 0-1, 越高越积极
   keywords: string[];
   commentCount: number;
+  /** 本条情感统计所依据的预测评论条数（与 commentCount 可能不同） */
+  sentimentSampleSize?: number;
   avgCommentLikes: number;
   topComments: TopComment[];
 }
@@ -70,7 +72,10 @@ export interface CommentTopic {
   contentMicroTopicId?: number;
   contentMicroKeywords?: string;
   contentMappingConfidence?: number;
+  /** 排名表/互动字段中的评论总数（可能大于已跑 MacBERT 的条数） */
   commentCount: number;
+  /** 参与情感比例计算的预测评论条数；与 commentCount 一致时表示已覆盖该笔记全部预测行 */
+  sentimentFromCount?: number;
   keywords: string[];
   positiveRatio: number;
   negativeRatio: number;
