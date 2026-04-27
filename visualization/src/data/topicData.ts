@@ -8,6 +8,8 @@
 // loadTopicCSV() 在单次页面会话内缓存结果，主题页与评论页共用，避免重复拉取与合并。
 // ============================================================
 
+import { MACRO_ANCHOR_ORDER } from '../theme/macroTopicColors'
+
 function resolveContentServerBase(): string {
   const v = import.meta.env.VITE_CONTENT_SERVER as string | undefined
   if (v !== undefined && v.trim() !== '') {
@@ -200,6 +202,158 @@ function parseNoiseCell(val: string | undefined): boolean | undefined {
   return undefined
 }
 
+/** 将 raw 的 time（秒/毫秒时间戳或 ISO 字符串）统一为 UTC 毫秒；无效则 undefined */
+export function normalizeTimeToMs(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return undefined
+    const ms = v < 1e12 ? Math.round(v * 1000) : Math.round(v)
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? undefined : ms
+  }
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (!s) return undefined
+    if (/^\d+(\.\d+)?$/.test(s)) return normalizeTimeToMs(Number(s))
+    const d = new Date(s)
+    return Number.isNaN(d.getTime()) ? undefined : d.getTime()
+  }
+  return undefined
+}
+
+/** 从已合并的 TopicRecord 取发布时间（毫秒） */
+export function getRecordTimeMs(r: TopicRecord): number | undefined {
+  return normalizeTimeToMs(r.time as unknown)
+}
+
+export function formatTopicTimestamp(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms)) return ''
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  try {
+    return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  } catch {
+    return d.toISOString()
+  }
+}
+
+function macroKeyForTemporal(r: TopicRecord): string {
+  const m = (r.macro_topic || '未分类').trim() || '未分类'
+  const low = m.toLowerCase()
+  if (r.is_noise === true || low.includes('噪声') || low.includes('outlier')) return '噪声数据'
+  return m
+}
+
+function monthPeriodKey(d: Date): string {
+  const y = d.getFullYear()
+  const mo = d.getMonth() + 1
+  return `${y}-${String(mo).padStart(2, '0')}`
+}
+
+function monthLabel(period: string): string {
+  const [ys, ms] = period.split('-')
+  return `${ys}年${parseInt(ms, 10)}月`
+}
+
+/** 本地时区：周一为一周起点，键为 yyyy-MM-dd（周一日期） */
+function weekPeriodKey(d: Date): string {
+  const c = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const day = c.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  c.setDate(c.getDate() + diff)
+  const y = c.getFullYear()
+  const m = c.getMonth() + 1
+  const dayM = c.getDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(dayM).padStart(2, '0')}`
+}
+
+function weekLabel(period: string): string {
+  return `周起 ${period}`
+}
+
+export interface TemporalMacroBucketRow {
+  period: string
+  label: string
+  total: number
+  [macro: string]: string | number
+}
+
+/**
+ * 按「月」或「周」聚合各宏观主题的笔记篇数，用于时序演变图。
+ * 依赖 rawdata JSON 合并后的 `time` 字段；秒/毫秒时间戳与 ISO 字符串均可。
+ */
+export function buildTemporalMacroSeries(
+  records: TopicRecord[],
+  bucket: 'month' | 'week' = 'month',
+): {
+  rows: TemporalMacroBucketRow[]
+  macroKeys: string[]
+  withTimeCount: number
+  missingTimeCount: number
+  totalCount: number
+  coveragePct: number
+} {
+  const totalCount = records.length
+  let withTimeCount = 0
+  const periodMacro = new Map<string, Map<string, number>>()
+
+  for (const r of records) {
+    const ms = getRecordTimeMs(r)
+    if (ms === undefined) continue
+    withTimeCount++
+    const d = new Date(ms)
+    const period = bucket === 'month' ? monthPeriodKey(d) : weekPeriodKey(d)
+    const macro = macroKeyForTemporal(r)
+    if (!periodMacro.has(period)) periodMacro.set(period, new Map())
+    const inner = periodMacro.get(period)!
+    inner.set(macro, (inner.get(macro) || 0) + 1)
+  }
+
+  const macroTotals = new Map<string, number>()
+  for (const inner of periodMacro.values()) {
+    for (const [m, c] of inner) macroTotals.set(m, (macroTotals.get(m) || 0) + c)
+  }
+
+  const orderedMacros: string[] = []
+  for (const name of MACRO_ANCHOR_ORDER) {
+    if (macroTotals.has(name)) orderedMacros.push(name)
+  }
+  const rest = [...macroTotals.keys()]
+    .filter((k) => !orderedMacros.includes(k))
+    .sort((a, b) => (macroTotals.get(b) || 0) - (macroTotals.get(a) || 0))
+  orderedMacros.push(...rest)
+
+  const periods = [...periodMacro.keys()].sort()
+  const rows: TemporalMacroBucketRow[] = periods.map((period) => {
+    const inner = periodMacro.get(period)!
+    let total = 0
+    const row: TemporalMacroBucketRow = {
+      period,
+      label: bucket === 'month' ? monthLabel(period) : weekLabel(period),
+      total: 0,
+    }
+    for (const m of orderedMacros) {
+      const c = inner.get(m) || 0
+      row[m] = c
+      total += c
+    }
+    row.total = total
+    return row
+  })
+
+  const missingTimeCount = totalCount - withTimeCount
+  const coveragePct = totalCount > 0 ? (withTimeCount / totalCount) * 100 : 0
+
+  return {
+    rows,
+    macroKeys: orderedMacros,
+    withTimeCount,
+    missingTimeCount,
+    totalCount,
+    coveragePct,
+  }
+}
+
 // ============================================================
 // 文件清单获取
 // ============================================================
@@ -346,7 +500,7 @@ async function loadTopicCSVOnce(): Promise<{
         share_count: raw ? parseNum(raw.share_count) : undefined,
         title: raw?.title,
         desc: raw?.desc,
-        time: raw?.time ? Number(raw.time) : undefined,
+        time: raw ? normalizeTimeToMs(raw.time) : undefined,
         ip_location: raw?.ip_location,
         tag_list: raw?.tag_list,
         note_url: raw?.note_url,
@@ -618,7 +772,12 @@ export function toNotes(records: TopicRecord[]): Note[] {
       macroTopicName: r.macro_topic,
       microTopicId: r.micro_topic_id,
       keywords: kwStr.split(',').map(k => k.trim()).filter(Boolean),
-      createdAt: r.time ? new Date(r.time).toISOString().split('T')[0] : '',
+      createdAt: (() => {
+        const ms = getRecordTimeMs(r)
+        if (ms === undefined) return ''
+        const d = new Date(ms)
+        return Number.isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0]
+      })(),
       ipLocation: r.ip_location || '',
       noteUrl: r.note_url || '',
       confidence: r.confidence,

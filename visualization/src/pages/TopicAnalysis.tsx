@@ -9,6 +9,7 @@ import {
   Loader2,
   GitCompare,
   MapPin,
+  CalendarClock,
   BookOpen,
   Brain,
   Cloud,
@@ -32,12 +33,15 @@ import {
   ResponsiveContainer,
   Tooltip,
   Sankey,
+  Legend,
 } from 'recharts';
 import {
   loadTopicCSV,
   aggregateTopics,
   buildIPDistribution,
+  buildTemporalMacroSeries,
   buildWordCloudEntriesForTopic,
+  formatTopicTimestamp,
   toNotes,
   Topic,
   TopicRecord,
@@ -62,6 +66,7 @@ const YAxisRC = YAxis as any;
 const ResponsiveContainerRC = ResponsiveContainer as any;
 const TooltipRC = Tooltip as any;
 const SankeyRC = Sankey as any;
+const LegendRC = Legend as any;
 
 /**
  * 桑基中间列 T* 专用色：与五大宏观锚点（MACRO_ANCHOR_COLORS）及右侧回退色刻意区分，
@@ -413,7 +418,7 @@ function ConfidenceBetweenRingsLeaderLabel(props: {
   );
 }
 
-type ViewMode = 'bertopic' | 'confidence' | 'geo' | 'compare';
+type ViewMode = 'bertopic' | 'confidence' | 'geo' | 'timeline' | 'compare';
 
 type MainModuleId = 'notes' | 'model';
 
@@ -569,13 +574,14 @@ export default function TopicAnalysis() {
     {
       id: 'notes' as const,
       label: '笔记数据',
-      hint: '细分主题、对比与地域分布',
+      hint: '细分主题、对比、地域与时序',
       icon: BookOpen,
       defaultTab: 'bertopic' as const,
       tabs: [
         { id: 'bertopic' as const, label: '细分主题', icon: Network },
         { id: 'compare' as const, label: '主题对比', icon: GitCompare },
         { id: 'geo' as const, label: '地理分布', icon: MapPin },
+        { id: 'timeline' as const, label: '时序演变', icon: CalendarClock },
       ],
     },
     {
@@ -947,6 +953,7 @@ export default function TopicAnalysis() {
                       {viewMode === 'geo' && (
                         <GeoDistributionView data={ipDistData} records={allRecords} topics={filteredTopics} />
                       )}
+                      {viewMode === 'timeline' && <TemporalEvolutionView records={allRecords} />}
                     </>
                   )}
                 </>
@@ -1983,6 +1990,104 @@ function TopicDetailPanel({
   );
 }
 
+// ─── 时序演变（按 raw `time` + 宏观主题）──
+function TemporalEvolutionView({ records }: { records: TopicRecord[] }) {
+  const [bucket, setBucket] = useState<'month' | 'week'>('month')
+  const series = useMemo(() => buildTemporalMacroSeries(records, bucket), [records, bucket])
+  const { rows, macroKeys, withTimeCount, missingTimeCount, totalCount, coveragePct } = series
+
+  const xAxisInterval = rows.length > 16 ? Math.max(0, Math.floor(rows.length / 14)) : 0
+
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h3 className="text-base md:text-lg font-semibold text-gray-800 tracking-tight">宏观主题 × 发布时间</h3>
+          <p className="text-xs md:text-sm text-gray-500 mt-1 leading-relaxed max-w-3xl">
+            时间来自原始笔记 JSON 的 <code className="text-rose-600/90 text-[11px]">time</code> 字段（与 final_pro_topics 按{' '}
+            <code className="text-rose-600/90 text-[11px]">note_id</code> 合并）；支持 Unix 秒/毫秒与常见日期字符串。
+          </p>
+          <p className="text-xs text-gray-400 mt-2">
+            可解析时间：<span className="font-medium text-rose-600">{formatNumber(withTimeCount)}</span> /{' '}
+            {formatNumber(totalCount)} 条（{coveragePct.toFixed(1)}%）
+            {missingTimeCount > 0 && (
+              <span className="ml-2">· 无时间 {formatNumber(missingTimeCount)} 条未计入下图</span>
+            )}
+          </p>
+        </div>
+        <div className="flex rounded-xl border border-rose-100 bg-white/90 p-1 shrink-0 shadow-sm">
+          {(
+            [
+              { id: 'month' as const, label: '按月' },
+              { id: 'week' as const, label: '按周' },
+            ] as const
+          ).map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => setBucket(b.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                bucket === b.id ? 'bg-rose-500 text-white shadow' : 'text-gray-600 hover:bg-rose-50'
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {rows.length === 0 || withTimeCount === 0 ? (
+        <EmptyState
+          type="data"
+          title="暂无可展示的时间序列"
+          description="请确认 rawdata 中笔记包含有效 time，且已成功与主题表按 note_id 合并。"
+        />
+      ) : (
+        <div className="rounded-2xl border border-rose-200/50 bg-gradient-to-b from-rose-50/30 via-white to-white p-3 sm:p-5 shadow-lg shadow-rose-100/20">
+          <div className="h-[min(440px,55vh)] w-full min-h-[280px]">
+            <ResponsiveContainerRC width="100%" height="100%">
+              <BarChartRC
+                data={rows}
+                margin={{ top: 12, right: 12, left: 4, bottom: bucket === 'month' ? 56 : 72 }}
+              >
+                <CartesianGridRC strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxisRC
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  interval={xAxisInterval}
+                  angle={bucket === 'week' ? -32 : -22}
+                  textAnchor="end"
+                  height={bucket === 'week' ? 68 : 52}
+                />
+                <YAxisRC tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} width={42} />
+                <TooltipRC
+                  contentStyle={{ borderRadius: 12, border: '1px solid #fecdd3', fontSize: 12 }}
+                  formatter={(value: number) => [formatNumber(value), '篇']}
+                />
+                <LegendRC wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                {macroKeys.map((m) => (
+                  <BarRC
+                    key={m}
+                    dataKey={m}
+                    name={m}
+                    stackId="macro"
+                    fill={macroTopicDisplayColor(m)}
+                    maxBarSize={56}
+                  />
+                ))}
+              </BarChartRC>
+            </ResponsiveContainerRC>
+          </div>
+          <p className="text-xs text-gray-400 mt-3 text-center sm:text-left">
+            堆叠柱高度 = 该{bucket === 'month' ? '月' : '周'}各宏观主题笔记篇数之和；配色与环形图宏观图例一致。
+          </p>
+        </div>
+      )}
+
+    </div>
+  )
+}
+
 // ─── 地理分布视图 ──
 function GeoDistributionView({
   data,
@@ -2169,6 +2274,8 @@ function NoteModal({
 
   if (!record) return null;
 
+  const timeStr = formatTopicTimestamp(record.time);
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4"
@@ -2188,6 +2295,7 @@ function NoteModal({
               {record.macro_topic}
               {record.nickname ? ` · @${record.nickname}` : ''}
               {record.ip_location ? ` · ${record.ip_location}` : ''}
+              {timeStr ? ` · ${timeStr}` : ''}
             </p>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white shrink-0">

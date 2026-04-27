@@ -476,10 +476,6 @@ def configure_cuda_performance() -> None:
 
 
 def resolve_optim_and_amp(use_8bit: bool) -> tuple[bool, bool, str]:
-    """
-    RTX 5070 支持 bf16：训练用 bf16（与 fp16 互斥）。
-    优化器：优先 adamw_8bit 省显存；否则 adamw_torch（与 transformers 版本兼容最好）。
-    """
     bf16 = torch.cuda.is_bf16_supported()
     if not bf16:
         print("[警告] 当前驱动/GPU 报告不支持 bf16，将使用 fp16。")

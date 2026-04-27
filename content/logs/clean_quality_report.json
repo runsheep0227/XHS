@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-29 12:40:48",
+  "timestamp": "2026-04-26 13:01:40",
   "config": {
     "keep_english": true,
     "min_full_text_len": 20,
@@ -8,16 +8,16 @@
     "keywords_count": 124
   },
   "stats": {
-    "total_input": 18980,
-    "valid_samples": 18146,
-    "invalid_samples": 834,
-    "valid_ratio": 0.9560590094836671
+    "total_input": 19097,
+    "valid_samples": 18255,
+    "invalid_samples": 842,
+    "valid_ratio": 0.9559093051264597
   },
   "quality_distribution": {
     "empty_title": 0,
     "empty_desc": 83,
     "short_text": 130,
-    "few_words": 834,
-    "valid": 18146
+    "few_words": 842,
+    "valid": 18255
   }
 }

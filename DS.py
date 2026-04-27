@@ -4,7 +4,7 @@ from datetime import datetime
 
 # ================= 配置区域 =================
 # 源文件夹路径
-SOURCE_DIR = r"E:\document\PG\dataset\MediaCrawler\data\xhs\json"
+SOURCE_DIR = r"E:\document\PG\rawdata\MediaCrawler\data\xhs\json"
 
 # 目标文件夹路径
 TARGET_COMMENT_DIR = r"E:\document\PG\studio\comment\rawdata"

@@ -153,11 +153,11 @@ def initialize_pipeline(data_size):
 
     umap_model = UMAP(n_neighbors=30, n_components=15, min_dist=0.1, metric='cosine', random_state=RANDOM_STATE)
     
-    dynamic_min_cluster = max(25, int((data_size / TARGET_MICRO_TOPICS_MAX) * 0.25))
+    dynamic_min_cluster = max(25, int((data_size / TARGET_MICRO_TOPICS_MAX) * 0.28))
     logger.info(f"📐 动态设定 HDBSCAN 最小聚类体积: {dynamic_min_cluster}")
 
     # 【降噪调整1】降低孤立点门槛 (从 //4 降到 //5)，使得稍微稀疏的数据也能成团而不是直接变噪声
-    min_samples_val = max(5, dynamic_min_cluster // 5) 
+    min_samples_val = max(5, dynamic_min_cluster // 6) 
     
     hdbscan_model = HDBSCAN(
         min_cluster_size=dynamic_min_cluster,
@@ -274,8 +274,8 @@ def train_and_optimize(full_texts, seg_texts, pipeline_models):
         topics = topic_model.topics_
 
     # 【降噪调整2】适度放宽离群点回收门槛 (0.75 -> 0.55)，大幅度挽回有效数据
-    logger.info("🔄 阶段2.2：执行离群点归队回收（适中阈值: 0.55）...")
-    topics_recovered = topic_model.reduce_outliers(seg_texts, topics, strategy="embeddings", embeddings=embeddings, threshold=0.55)
+    logger.info("🔄 阶段2.2：执行离群点归队回收（适中阈值: 0.3）...")
+    topics_recovered = topic_model.reduce_outliers(seg_texts, topics, strategy="embeddings", embeddings=embeddings, threshold=0.3)
     topic_model.update_topics(seg_texts, topics=topics_recovered)
     topics = topic_model.topics_
 
