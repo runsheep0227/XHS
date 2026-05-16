@@ -1,0 +1,161 @@
+2026-03-20 17:17:03,820 - INFO - 📂 正在加载数据: E:\document\PG\studio\content\bertopic_ready_data\bertopic_train_data.csv
+2026-03-20 17:17:04,097 - INFO - 🔧 初始化 BERTopic 顶配算力流水线...
+2026-03-20 17:17:04,097 - INFO - 🤖 正在加载 BAAI/bge-large-zh-v1.5 模型 (参数庞大，请耐心等待)...
+2026-03-20 17:17:04,100 - INFO - Use pytorch device_name: cuda:0
+2026-03-20 17:17:04,100 - INFO - Load pretrained SentenceTransformer: BAAI/bge-large-zh-v1.5
+2026-03-20 17:17:04,933 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:05,072 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:05,240 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:05,535 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:05,760 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:05,860 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:06,157 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:06,370 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:06,696 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:06,847 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/README.md "HTTP/1.1 200 OK"
+2026-03-20 17:17:06,977 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/README.md "HTTP/1.1 200 OK"
+2026-03-20 17:17:07,596 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:07,705 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:08,003 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:08,120 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:08,311 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:08,619 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:17:09,028 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:17:09,172 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:09,274 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:17:09,757 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-03-20 17:17:10,051 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:17:10,360 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+2026-03-20 17:17:10,698 - INFO - HTTP Request: GET https://cas-bridge.xethub.hf.co/xet-bridge-us/64fff58369219ce3e48e1a1a/0e4a165ebcec5a628267992ecd11c0e54f7b8ce6b0593275106386ca8eafba3c?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=cas%2F20260320%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260320T091710Z&X-Amz-Expires=3600&X-Amz-Signature=e843a51315976df2c001e7df3ddd3105b2e882836cda77ade86935a7a057aec4&X-Amz-SignedHeaders=host&X-Xet-Cas-Uid=62171e3b6a99db28e0b3159d&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27pytorch_model.bin%3B+filename%3D%22pytorch_model.bin%22%3B&response-content-type=application%2Foctet-stream&x-amz-checksum-mode=ENABLED&x-id=GetObject&Expires=1774001830&Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc3NDAwMTgzMH19LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2FzLWJyaWRnZS54ZXRodWIuaGYuY28veGV0LWJyaWRnZS11cy82NGZmZjU4MzY5MjE5Y2UzZTQ4ZTFhMWEvMGU0YTE2NWViY2VjNWE2MjgyNjc5OTJlY2QxMWMwZTU0ZjdiOGNlNmIwNTkzMjc1MTA2Mzg2Y2E4ZWFmYmEzYyoifV19&Signature=vxwZnanh25ASNP4XeLKDkUiKApK-ewKguWUiGImeWgKvPanJcztseelXA%7EyIh4XRXB9QkU2fNPRCu1ZqX4qCHP5jUMNqHybhuLM9UEcyEkpN5GhN-3OqYvmmWiqOzeqVtl3fTP72GE714pYByGJjMxpLbZ6IKNXe2lyQT2bzYajpv%7ETCiNsyesHyWICLPN%7ELPV3hDVKYXk0bbgP9VNbEBGecK4-be0GdC4-9ORXpjb%7EE9bBvksIRJRx%7EvARMHON8UBp9fjuzY814Ur2jZXUc0bUv%7Enk-sBEX2X4rhnpAiHKYMWhblCyyXsPB0BJrmW25U9S3CX3lBvF43zS8tR1ldw__&Key-Pair-Id=K2L8F4GPSG1IFC "HTTP/1.1 200 OK"
+2026-03-20 17:19:03,729 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-03-20 17:19:03,886 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:19:04,036 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/main "HTTP/1.1 200 OK"
+2026-03-20 17:19:04,161 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/discussions?p=0 "HTTP/1.1 200 OK"
+2026-03-20 17:19:04,302 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/refs%2Fpr%2F35 "HTTP/1.1 200 OK"
+2026-03-20 17:19:04,579 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:19:04,860 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors "HTTP/1.1 302 Found"
+2026-03-20 17:19:04,942 - INFO - HTTP Request: GET https://cas-bridge.xethub.hf.co/xet-bridge-us/64fff58369219ce3e48e1a1a/57e0f934e2119245da805d8a6e8fb02178d5ded3f2e97ab9eaca5225f8ea47bf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=cas%2F20260320%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260320T091904Z&X-Amz-Expires=3600&X-Amz-Signature=68d616da1295631475c754bfc5cc888eca81dab9becd39777049509f612308dd&X-Amz-SignedHeaders=host&X-Xet-Cas-Uid=62171e3b6a99db28e0b3159d&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27model.safetensors%3B+filename%3D%22model.safetensors%22%3B&x-amz-checksum-mode=ENABLED&x-id=GetObject&Expires=1774001944&Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc3NDAwMTk0NH19LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2FzLWJyaWRnZS54ZXRodWIuaGYuY28veGV0LWJyaWRnZS11cy82NGZmZjU4MzY5MjE5Y2UzZTQ4ZTFhMWEvNTdlMGY5MzRlMjExOTI0NWRhODA1ZDhhNmU4ZmIwMjE3OGQ1ZGVkM2YyZTk3YWI5ZWFjYTUyMjVmOGVhNDdiZioifV19&Signature=lKyL6itoHZTiBdGzraOMSax5abJQK6XHXS4CjQy3pSsBldKp8KbxNyTRw3pGBjPvvoLY3nX7jnLMgQtMFDM1xevCfhR-Ziv-kdpfhrArCPDMwqceyZHZpGOpuMYKwhyY4s9nJE0nTJk7CCgkkPfjJJsMzR4gR3QE6tqUjcHZa7V86P1k3L%7E3JLN-iafpWebOALGDUUh9JtczpxMJ9Il4Wwcqx%7EBBp4pxaGgXgTNu8RQMFbOKhH4Nl6GWfdvJdpUA8WLS5aEa6bUTanj5aYps3ca0%7Eh4GoMFH7St2GKoHtzG%7EOzqln2ypNC1e7uva8iS1oLoAGi6s2h%7EIP34fvrUSDA__&Key-Pair-Id=K2L8F4GPSG1IFC "HTTP/1.1 200 OK"
+2026-03-20 17:24:44,247 - INFO - 📂 正在加载数据: E:\document\PG\studio\content\bertopic_ready_data\bertopic_train_data.csv
+2026-03-20 17:24:44,525 - INFO - 🔧 初始化 BERTopic 顶配算力流水线...
+2026-03-20 17:24:44,525 - INFO - 🤖 正在加载 BAAI/bge-large-zh-v1.5 模型 (参数庞大，请耐心等待)...
+2026-03-20 17:24:44,529 - INFO - Use pytorch device_name: cuda:0
+2026-03-20 17:24:44,529 - INFO - Load pretrained SentenceTransformer: BAAI/bge-large-zh-v1.5
+2026-03-20 17:24:45,337 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:45,553 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:45,970 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:46,157 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:46,574 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:46,770 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:47,132 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:47,397 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/README.md "HTTP/1.1 200 OK"
+2026-03-20 17:24:47,786 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:47,910 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:48,321 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:48,509 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:48,829 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:24:49,293 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:24:49,413 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:24:49,740 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-03-20 17:24:49,948 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:24:50,149 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/main "HTTP/1.1 200 OK"
+2026-03-20 17:24:50,252 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/discussions?p=0 "HTTP/1.1 200 OK"
+2026-03-20 17:24:50,460 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/refs%2Fpr%2F35 "HTTP/1.1 200 OK"
+2026-03-20 17:24:50,868 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:24:51,181 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors "HTTP/1.1 302 Found"
+2026-03-20 17:27:13,021 - INFO - 📂 正在加载数据: E:\document\PG\studio\content\bertopic_ready_data\bertopic_train_data.csv
+2026-03-20 17:27:13,320 - INFO - 🔧 初始化 BERTopic 顶配算力流水线...
+2026-03-20 17:27:13,320 - INFO - 🤖 正在加载 BAAI/bge-large-zh-v1.5 模型 (参数庞大，请耐心等待)...
+2026-03-20 17:27:13,323 - INFO - Load pretrained SentenceTransformer: BAAI/bge-large-zh-v1.5
+2026-03-20 17:27:14,512 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:14,654 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:14,951 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:15,056 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:15,366 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:15,458 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:15,868 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:15,974 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/README.md "HTTP/1.1 200 OK"
+2026-03-20 17:27:16,279 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:16,587 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:16,912 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:17,208 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:17,514 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:17,917 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:18,129 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:18,430 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:18,635 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:27:18,718 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/main "HTTP/1.1 200 OK"
+2026-03-20 17:27:18,841 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/discussions?p=0 "HTTP/1.1 200 OK"
+2026-03-20 17:27:19,048 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/refs%2Fpr%2F35 "HTTP/1.1 200 OK"
+2026-03-20 17:27:19,248 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:19,449 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:19,450 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:19,743 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors "HTTP/1.1 302 Found"
+2026-03-20 17:27:19,868 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:20,183 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:20,380 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:20,545 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:20,695 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-03-20 17:27:21,048 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/vocab.txt "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:21,139 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/vocab.txt "HTTP/1.1 200 OK"
+2026-03-20 17:27:21,253 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/vocab.txt "HTTP/1.1 200 OK"
+2026-03-20 17:27:21,926 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:22,142 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/tokenizer.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:22,634 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/tokenizer.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:23,166 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/added_tokens.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:23,536 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/special_tokens_map.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:23,654 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/special_tokens_map.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:23,795 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/special_tokens_map.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:24,131 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/chat_template.jinja "HTTP/1.1 404 Not Found"
+2026-03-20 17:27:24,458 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:27:24,550 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:24,660 - INFO - HTTP Request: GET https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-03-20 17:27:24,806 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:27:25,565 - INFO - 🚀 阶段1：开始执行基础主题建模...
+2026-03-20 17:33:04,702 - INFO - 🧹 阶段2：启动空间向量降噪！(原噪声 5827 条)
+2026-03-20 17:34:43,624 - INFO - ✨ 降噪完成！当前剩余绝对噪声：0 条
+2026-03-20 17:34:43,624 - INFO - 🎯 阶段3：基于【代表性原文上下文】执行微观->宏观双层映射...
+2026-03-20 17:34:46,754 - INFO - 💾 阶段4：正在保存结果与本地模型...
+2026-03-20 17:34:47,327 - INFO - 🏆 【成功】专属 BERTopic 模型已保存在：E:\document\PG\studio\content\bertopic_results\saved_model
+2026-03-20 17:34:47,327 - INFO -    👉 您可以在这里找到 config.json 和 safetensors 权重文件
+2026-03-20 17:34:47,511 - INFO - ✅ 聚类大功告成！报告已保存至：pro_mapping_report.txt
+2026-03-20 17:47:09,138 - INFO - 📂 正在加载数据: E:\document\PG\studio\content\bertopic_ready_data\bertopic_train_data.csv
+2026-03-20 17:47:09,419 - INFO - 🔧 初始化 BERTopic 顶配算力流水线...
+2026-03-20 17:47:09,419 - INFO - 🤖 正在加载 BAAI/bge-large-zh-v1.5 模型，使用设备: cuda
+2026-03-20 17:47:09,421 - INFO - Load pretrained SentenceTransformer: BAAI/bge-large-zh-v1.5
+2026-03-20 17:47:10,238 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:10,394 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:10,732 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:10,951 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:11,207 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:11,288 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:11,552 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:11,748 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/README.md "HTTP/1.1 200 OK"
+2026-03-20 17:47:12,097 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:12,333 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/modules.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:12,597 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:12,738 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:13,033 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:47:13,298 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:13,430 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:13,709 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-03-20 17:47:13,843 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:47:13,947 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/main "HTTP/1.1 200 OK"
+2026-03-20 17:47:14,114 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/discussions?p=0 "HTTP/1.1 200 OK"
+2026-03-20 17:47:14,243 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/commits/refs%2Fpr%2F35 "HTTP/1.1 200 OK"
+2026-03-20 17:47:14,321 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:14,413 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/config.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:14,504 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-03-20 17:47:14,665 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:14,798 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/refs%2Fpr%2F35/model.safetensors "HTTP/1.1 302 Found"
+2026-03-20 17:47:14,866 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:15,027 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-03-20 17:47:15,138 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-03-20 17:47:15,432 - INFO - HTTP Request: HEAD https://hf-mirror.com/BAAI/bge-large-zh-v1.5/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 17:47:15,537 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/BAAI/bge-large-zh-v1.5/79e7739b6ab944e86d6171e44d24c997fc1e0116/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-03-20 17:47:15,680 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/BAAI/bge-large-zh-v1.5 "HTTP/1.1 200 OK"
+2026-03-20 17:47:16,434 - INFO - 🚀 阶段1：开始执行 Guided BERTopic (先验引导聚类)...
+2026-03-20 17:52:57,115 - INFO - 🗑️ 聚类完成！成功隔离真实的离散噪声数据：6513 条。保留噪声是保证分类纯度的学术要求！
+2026-03-20 17:52:57,115 - INFO - 🎯 阶段2：基于【关键词+真实语境】执行高精度语义映射...
+2026-03-20 17:52:58,438 - INFO - 💾 阶段3：正在保存结果与本地微调模型...
+2026-03-20 17:52:58,466 - INFO - 🏆 【成功】专属 BERTopic 模型已保存在本地：E:\document\PG\studio\content\bertopic_results\saved_model
+2026-03-20 17:52:58,625 - INFO - ✅ 聚类大功告成！严谨的层级审查报告已保存至：pro_mapping_report.txt

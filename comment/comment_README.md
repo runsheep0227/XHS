@@ -22,13 +22,18 @@
 
 ## 当前仓库中的数据与指标（仅供参考）
 
-以下数字来自本仓库内已生成的报告文件，**随你重新跑清洗、划分或训练会变化**。
+以下数字来自本仓库内已生成的报告文件，**随你重新跑清洗、划分、训练或全量预测会变化**。
 
-- **二次清洗**（`bert_data/clean_data_report.txt`）：输入 `cleaned_com.json` 约 76,895 条 → 有效约 **75,245** 条，留存率约 97.85%。
-- **全量预测统计**（`comment_results/prediction_stats.txt`）：已对约 **75,245** 条打标；极性占比约 负 25.52% / 中 35.28% / 正 39.21%；涉及约 **10,851** 个不同 `note_id`。
-- **测试集评估**（`results/evaluation_report.txt`）：Accuracy **0.7450**，Macro-F1 **0.7384**（测试集 800 条，与当前 `test.csv` 一致）。
+| 阶段 | 来源文件 | 当前约数 |
+| --- | --- | --- |
+| 一级清洗 | `cleaned_com.json` | **79,537** 条 |
+| 二级清洗 | `bert_data/clean_data_report.txt` | 输入 79,537 → 有效 **76,401** 条（留存率 **96.06%**） |
+| 全量预测 | `comment_results/prediction_stats.txt` | **75,245** 条已打标（若与 `final_cleaned_comments.json` 条数不一致，请重跑 `predict_all.py`） |
+| 测试集评估 | `results/evaluation_report.txt` | Accuracy **0.7438**，Macro-F1 **0.7354**（测试集 **800** 条） |
 
-默认微调基座为 **`hfl/chinese-macbert-large`**（见 `train_roberta.py` 中 `DEFAULT_MODEL_NAME`），可通过 `--model_name` 改为 `hfl/chinese-roberta-wwm-ext` 等中文分类常用模型。
+全量预测极性占比（`prediction_stats.txt`）：负 **25.52%** / 中 **35.28%** / 正 **39.21%**；约 **10,851** 个不同 `note_id`。
+
+默认微调基座为 **`hfl/chinese-macbert-large`**（见 `train_roberta.py` 中 `DEFAULT_MODEL_NAME`），可通过 `--model_name` 改为 `hfl/chinese-roberta-wwm-ext` 等中文分类常用模型。训练默认 **`max_length=512`**、`train_batch=12`、`grad_accum=2`（有效 batch 24），支持 bf16、可选 8bit Adam、类权重、Focal Loss、早停与 `run_summary.json` 等。
 
 ---
 
@@ -36,15 +41,15 @@
 
 1. **`clean_com.py`**：读取 `rawdata/search_comments_*.json`，字段提取、去 `@`、表情占位符转文字、质量过滤与去重 → **`cleaned_com.json`**（与脚本同级）。
 2. **`clean_data.py`**：读取 `cleaned_com.json`，符号与长度规则、无意义词表过滤、再次去重 → **`bert_data/final_cleaned_comments.json`**、**`bert_data/bert_train_ready.csv`**、**`bert_data/clean_data_report.txt`**。
-3. **`random_sample.py`**：从 `final_cleaned_comments.json` 随机抽样（脚本内 `SAMPLE_SIZE`，当前为 **8000**）→ **`bert_data.llm_sample_data.json`**。
+3. **`random_sample.py`**：从 `final_cleaned_comments.json` 随机抽样（脚本内 `SAMPLE_SIZE`，当前为 **8000**，`random.seed(42)`）→ **`bert_data/llm_sample_data.json`**。
 4. **`llm_annotate.py`**：调用兼容 OpenAI API 的本地服务（如 LM Studio），对抽样评论打 `-1/0/1`（失败行可能为 `2` 或 `-2`）→ **`bert_data/llm_labeled_result.csv`** 与 **`bert_data/llm_labeled_result_stats.csv`**。  
-   **注意**：脚本内 `OUTPUT_DIR` 曾写死为绝对路径，换机器时请改为基于 `__file__` 的目录，与输入 `bert_data` 一致。
+   **注意**：脚本内 `OUTPUT_DIR` 当前为绝对路径 `E:\document\PG\studio\comment\bert_data`，换机器时请改为基于 `__file__` 的 `bert_data` 目录。
 5. **`split_dataset.py`**：读取 `llm_labeled_result.csv`，只保留标签 `{-1,0,1}` 且非空 `content`，按 **8:1:1** 分层划分；可选 **`--train_neg_multiplier`** 仅对训练集负样本过采样。输出 **`bert_data/train.csv`**、`val.csv`、`test.csv`。
-6. **`train_roberta.py`**：读取 `train.csv` / `val.csv`，训练三分类模型；训练过程 checkpoint 在 **`checkpoint_temp/`**（或带 `run_name` 的子目录），验证最优模型导出到 **`saved_model/`**（默认 `--export_dir saved_model`）。支持类权重、Focal、早停、`run_summary.json` 与 `checkpoint_eval_summary.json` 等。
-7. **`evaluate_model.py`**：在 **`bert_data/test.csv`** 上评估 **`saved_model/`**，生成 **`results/`** 下报告与多张图（混淆矩阵、ROC、误判 CSV 等）。
-8. **`predict_all.py`**：对 **`bert_data/final_cleaned_comments.json`**（或可切换为含 `txt`/`content` 的 CSV）批量推理，写入 **`comment_results/predicted_comments.json`**，每条记录增加 `sentiment_class_id`、`sentiment_polarity`、`sentiment_text`；支持断点续跑（`*.predict_ckpt.json`）。
+6. **`train_roberta.py`**：读取 `train.csv` / `val.csv`，训练三分类模型；训练过程 checkpoint 在 **`checkpoint_temp/`**（或带 `run_name` 的子目录），验证最优模型导出到 **`saved_model/`**（默认 `--export_dir saved_model`）。
+7. **`evaluate_model.py`**：在 **`bert_data/test.csv`** 上评估 **`saved_model/`**，生成 **`results/`** 下报告、多张 PNG 与 **`eval_viz_payload.json`**（供前端复现 ROC/PR 等）。
+8. **`predict_all.py`**：对 **`bert_data/final_cleaned_comments.json`**（或可切换为含 `txt`/`content` 的 CSV）批量推理，写入 **`comment_results/predicted_comments.json`**，每条增加 `sentiment_class_id`、`sentiment_polarity`、`sentiment_text`；支持断点续跑（`*.predict_ckpt.json`）。
 9. **`summarize_predictions.py`**（可选）：汇总 `predicted_comments.json` → **`comment_results/prediction_stats.txt`**、`_polarity.csv`、`_class.csv`、`_notes.csv`。
-10. **`recalc_llm_label_stats.py`**（可选）：在你手工修正 **`llm_labeled_result.csv`** 后，重算 **`llm_labeled_result_stats.csv`**，并可导出失败行列表 **`llm_labeled_failure_ids.txt`**、**`llm_labeled_failures_report.csv`**。
+10. **`recalc_llm_label_stats.py`**（可选）：手工修正 **`llm_labeled_result.csv`** 后，重算 **`llm_labeled_result_stats.csv`**，并可导出失败行 **`llm_labeled_failure_ids.txt`**、**`llm_labeled_failures_report.csv`**。
 
 ---
 
@@ -58,12 +63,12 @@
 | `clean_data.py` | 二级清洗 → `bert_data/` 内 JSON/CSV/报告 |
 | `meaningless_word.txt` | 低信息熵过滤用词表（`#` 行为注释） |
 | `random_sample.py` | 构造 LLM 标注用子集 |
-| `llm_annotate.py` | 本地 API 批量标注 |
+| `llm_annotate.py` | 本地 OpenAI 兼容 API 批量标注 |
 | `recalc_llm_label_stats.py` | 修正标注表后重算统计与失败报告 |
 | `split_dataset.py` | 划分 train/val/test，可选负样本过采样 |
 | `train_roberta.py` | 微调与导出 |
-| `evaluate_model.py` | 测试集评估与图表 |
-| `predict_all.py` | 全量推理 |
+| `evaluate_model.py` | 测试集评估、图表与 `eval_viz_payload.json` |
+| `predict_all.py` | 全量推理（默认 `max_length=512`） |
 | `summarize_predictions.py` | 预测结果分布与按笔记聚合 |
 
 ### `rawdata/`
@@ -74,23 +79,21 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `final_cleaned_comments.json` | 清洗后全量记录：`note_id`、`nickname`、`content`、`ip_location`、`original_content` 等 |
-| `bert_train_ready.csv` | 两列 `note_id`, `txt`（无标签，供预测或二次合并标签） |
-| `clean_data_report.txt` | 二级清洗统计（**注意**：报告正文里个别文件名描述可能与脚本实际输出名不一致，以脚本为准） |
+| `final_cleaned_comments.json` | 清洗后全量：`note_id`、`nickname`、`content`、`original_content` 等 |
+| `bert_train_ready.csv` | 两列 `note_id`, `txt`（无标签，供预测或合并标签） |
+| `clean_data_report.txt` | 二级清洗统计 |
 | `llm_sample_data.json` | 供 LLM 标注的抽样 |
 | `llm_labeled_result.csv` | LLM 标注结果（含 `label`、`raw_response` 等） |
 | `llm_labeled_result_stats.csv` | 标注分布统计 |
-| `train.csv` / `val.csv` / `test.csv` | 划分后训练与评估集（保留 `split_dataset` 写入的列） |
-
-手工修正标注后可运行 `recalc_llm_label_stats.py`；若存在异常标签，可能额外生成 `llm_labeled_failure_ids.txt`、`llm_labeled_failures_report.csv`。
+| `train.csv` / `val.csv` / `test.csv` | 划分后训练与评估集 |
 
 ### `saved_model/`（推理与评估加载目录）
 
-由 `train_roberta.py` 将验证集上最优 checkpoint 导出至此。至少包含 **`config.json`**、分词器文件；完整训练中还应含 **`model.safetensors`** 或 **`pytorch_model.bin`** 等权重（若仓库中未提交大文件，需本地训练后生成）。
+由 `train_roberta.py` 将验证集上最优 checkpoint 导出至此。至少包含 **`config.json`**、分词器与权重（`model.safetensors` 或 `pytorch_model.bin`）。大文件可能未纳入 Git，需本地训练后生成。
 
 ### `checkpoint_temp/`（训练中间产物）
 
-各 `checkpoint-*` 子目录、`trainer_state.json`、`run_summary.json`、`checkpoint_eval_summary.json` 等；用于断点续训或对比用不同步数的验证指标。
+各 `checkpoint-*` 子目录、`trainer_state.json`、`run_summary.json`、`checkpoint_eval_summary.json` 等。开发态 **`judge_server.py`** 在未设置 `JUDGE_COMMENT_MODEL_DIR` 时会自动选用步号最大的 checkpoint 做在线情感推理。
 
 ### `results/`（离线评估产出）
 
@@ -98,6 +101,7 @@
 | --- | --- |
 | `evaluation_report.txt` | Accuracy、Macro-F1、按类 precision/recall/F1 |
 | `01_confusion_matrix.png` ~ `08_metrics_radar.png` | 混淆矩阵、指标柱状图、置信度、ROC/PR、雷达图等 |
+| `eval_viz_payload.json` | 与 PNG 同源的数值载荷，供 `visualization` 前端绘图 |
 | `09_error_analysis.txt` | 误判分析摘要 |
 | `misclassified_test.csv` | 误判样本明细 |
 
@@ -106,16 +110,31 @@
 | 文件 | 说明 |
 | --- | --- |
 | `predicted_comments.json` | 在清洗结构基础上增加 `sentiment_*` 字段 |
-| `prediction_stats.txt`、`*_polarity.csv`、`*_class.csv`、`*_notes.csv` | 由 `summarize_predictions.py` 生成（前缀默认 `prediction_stats`） |
+| `prediction_stats.txt`、`*_polarity.csv`、`*_class.csv`、`*_notes.csv` | 由 `summarize_predictions.py` 生成 |
 
-推理过程中可能短暂存在 **`predicted_comments.predict_ckpt.json`**，跑完后成功则删除。
+推理过程中可能短暂存在 **`predicted_comments.predict_ckpt.json`**，成功后通常删除。
+
+---
+
+## 与可视化 / 在线研判的衔接
+
+仓库根目录 **`visualization/`** 在开发模式下通过 Vite 同源挂载 `comment/` 与 `content/`（默认端口 **1306**），评论分析页主要读取：
+
+- `comment/comment_results/prediction_stats_*.csv`
+- `comment/results/evaluation_report.txt`、`eval_viz_payload.json`
+- `comment/predictions` API（分页读 `predicted_comments.json`，见 `vite.config.ts`）
+- `comment/training_history`（解析 `checkpoint_temp` 下 `trainer_state.json`）
+
+在线「笔记 + 评论」研判由根目录 **`judge_server.py`**（默认 `127.0.0.1:18999`）提供：评论情感默认加载 `comment/checkpoint_temp` 最新 checkpoint 或 `JUDGE_COMMENT_MODEL_DIR` 指向的目录；与 `evaluate_model.py` 的类别 id→极性映射一致。
+
+跨模块关联键为 **`note_id`**：前端将评论预测与 `content/bertopic_results_optimized/final_pro_topics.csv` 按 `note_id` 合并，展示笔记宏观主题与评论情感对照（见 `visualization/src/data/commentLiveData.ts`）。
 
 ---
 
 ## 依赖与环境
 
 - **Python**：`torch`、`transformers`、`datasets`、`pandas`、`scikit-learn`、`tqdm`；评估与作图需要 `matplotlib`、`seaborn`。
-- **LLM 标注**：`openai` 客户端 + 本地 **`BASE_URL`**（默认 `http://127.0.0.1:1234/v1`）与 **`MODEL_NAME`**；`llm_annotate.py` 中 `MAX_WORKERS` 当前为 1，可按机器与接口稳定性调高。
+- **LLM 标注**：`openai` 客户端 + 本地 **`BASE_URL`**（默认 `http://127.0.0.1:1234/v1`）与 **`MODEL_NAME`**；`llm_annotate.py` 中 `MAX_WORKERS` 当前为 1，可按接口稳定性调高。
 
 安装示例：
 
@@ -145,29 +164,32 @@ python summarize_predictions.py
 python split_dataset.py --train_neg_multiplier 1.5 --seed 42
 ```
 
+`train_roberta` 示例（换基座、缩短序列防 OOM）：
+
+```bash
+python train_roberta.py --model_name hfl/chinese-roberta-wwm-ext --max_length 256 --epochs 10
+```
+
 `predict_all` 可指定输入与模型目录：
 
 ```bash
 python predict_all.py --input bert_data/final_cleaned_comments.json --model-dir saved_model --output-dir comment_results
 ```
 
----
+开发研判服务（仓库根目录，需已训练模型与 content 侧 BERTopic）：
 
-## 上游可视化 / 前端接入建议
-
-- **极性饼图、柱状图**：直接读 **`comment_results/prediction_stats_polarity.csv`** 或 `predicted_comments.json` 聚合。
-- **按笔记评论量分布、热力或列表**：**`comment_results/prediction_stats_notes.csv`**（`note_id` + `comment_count`）。
-- **模型类 id 分布**：**`prediction_stats_class.csv`**（与 `sentiment_class_id` 一致）。
-- **与真实标签对比**（演示用）：**`bert_data/test.csv`** + 同一模型对 `content` 推理结果对比。
-- **训练/标注质量**：**`results/`** 下图表与 **`misclassified_test.csv`**；**`llm_labeled_result.csv`** 用于抽检 LLM 噪声。
+```bash
+python judge_server.py
+```
 
 ---
 
 ## 使用注意
 
-1. **路径可移植**：`clean_com.py`、`clean_data.py`、`split_dataset.py`、`predict_all.py` 等多基于脚本目录拼路径；`llm_annotate.py` 的 `OUTPUT_DIR` 建议改为与仓库相对路径一致。
-2. **标签与 CSV**：划分与评估脚本会将 `label` 转为数值；应用 Excel 编辑后若出现非法 `label`，`split_dataset` 会剔除并打印报告。
-3. **长文本**：训练与推理默认 **`max_length=512`**（`predict_all` / `train_roberta` 可改），与短于 128 的旧配置不同。
-4. **全量 JSON 体积**：`predicted_comments.json` 行数大，前端宜通过后端分页或只加载聚合 CSV。
+1. **路径可移植**：`clean_com.py`、`clean_data.py`、`split_dataset.py`、`predict_all.py` 等多基于脚本目录拼路径；**务必**将 `llm_annotate.py` 的 `OUTPUT_DIR` 改为本机 `comment/bert_data`。
+2. **标签与 CSV**：划分与评估脚本将 `label` 转为数值；Excel 编辑后若出现非法 `label`，`split_dataset` 会剔除并打印报告。
+3. **长文本**：训练与推理默认 **`max_length=512`**，与旧版 128 配置不同，需与导出模型一致。
+4. **全量 JSON 体积**：`predicted_comments.json` 行数大，前端通过分页 API 或聚合 CSV 加载，不宜整文件进浏览器。
+5. **清洗与预测条数**：二级清洗后 `final_cleaned_comments.json` 条数若已更新，应重新执行 `predict_all.py` 与 `summarize_predictions.py`，再刷新前端缓存。
 
-如需把 README 中的「当前指标」与某次固定实验对齐，请在复现实验后更新本节「当前仓库中的数据与指标」中的引用文件或数字。
+如需把 README 中的「当前指标」与某次固定实验对齐，请在复现实验后更新本节表格中的引用文件或数字。

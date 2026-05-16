@@ -1,12 +1,10 @@
-# Python 字节码 / 优化产物 / DLL 文件
+# Python 字节码 / 优化产物
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C 扩展产物
 *.so
 
-# 打包与分发产物
+# 打包与分发
 .Python
 build/
 develop-eggs/
@@ -25,21 +23,7 @@ wheels/
 *.egg
 MANIFEST
 
-# PyInstaller 相关
-#  这些文件通常由 Python 脚本基于模板生成，
-#  在 PyInstaller 构建 exe 之前写入。只要脚本已提交，
-#  构建通常可复现。若要生成不依赖 Python 的独立 exe，
-#  可能需要把这些额外文件也纳入版本库。
-#  （理论可行，但维护成本通常较高。）
-#  如果希望忽略它们，请取消下面两行注释
-# *.manifest
-# *.spec
-
-# 安装器日志
-pip-log.txt
-pip-delete-this-directory.txt
-
-# 单元测试 / 覆盖率报告
+# 测试 / 覆盖率
 htmlcov/
 .tox/
 .nox/
@@ -52,45 +36,18 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# 国际化翻译文件
+# 翻译 / 文档构建
 *.mo
 *.pot
-
-# Django 相关
-*.log
-local_settings.py
-db.sqlite3
-
-# Flask 相关
-instance/
-.webassets-cache
-
-# Scrapy 相关
-.scrapy
-
-# Sphinx 文档产物
 docs/_build/
-
-# PyBuilder 构建目录
 target/
 
-# Jupyter Notebook 运行缓存
+# Jupyter / IPython
 .ipynb_checkpoints
-
-# IPython 配置与资料
 profile_default/
 ipython_config.py
 
-# pyenv 版本文件
-.python-version
-
-# Celery Beat 调度文件
-celerybeat-schedule
-
-# SageMath 解析产物
-*.sage.py
-
-# Python 虚拟环境
+# 环境与密钥（勿提交真实密钥）
 .env
 .venv
 env/
@@ -99,41 +56,35 @@ ENV/
 env.bak/
 venv.bak/
 
-# Spyder 工程设置
-.spyderproject
-.spyproject
-
-# Rope 工程设置
-.ropeproject
-
-# mkdocs 文档产物
-/site
-
-# mypy 缓存
+# 工具缓存
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre 类型检查缓存
 .pyre/
+.spyderproject
+.spyproject
+.ropeproject
+/site
 
-# IDE 配置
+# IDE（保留根目录 .vscode 工作区配置）
 .idea/
-
-# 全量打标 JSON 体积大，可本地用 predict_all.py 再生；统计表仍纳入版本库
-comment/comment_results/predicted_comments.json
-comment/comment_results/*.predict_ckpt.json
-
-# 大文件 / 敏感文件自定义忽略
-comment/checkpoint_temp/
-comment/saved_model/
-comment/rawdata/
-content/rawdata/
-content/bertopic_results/bertopic_model/
-content/hf_cache/
 
 # 本地助手工作笔记
 .workbuddy/
 
-# Node / 前端依赖
+# Node / 前端构建产物
 node_modules/
+visualization/dist/
+visualization/dist-ssr/
+
+# —— 以下为大体积或可再生产物，最终版仍忽略（GitHub 单文件上限 100MB）——
+# MacBERT 权重约 1.2GB，需本地运行 train_roberta.py 后生成
+comment/checkpoint_temp/
+comment/saved_model/
+# HuggingFace 嵌入模型缓存，运行 bertopic_train.py 可自动下载
+content/hf_cache/
+# BERTopic 旧版完整模型目录（当前以 bertopic_results_optimized/ 为准）
+content/bertopic_results/bertopic_model/
+
+# 全量预测断点（成功后应删除；主文件 predicted_comments.json 已纳入版本库）
+comment/comment_results/*.predict_ckpt.json

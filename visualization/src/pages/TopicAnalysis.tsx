@@ -190,18 +190,19 @@ function sankeyNodeColors(name: string, depth: number): { fill: string; textFill
 /** 指向 T* 的连线保持中性灰；指向右侧宏观主题的连线与锚点色一致 */
 const SANKEY_LINK_GRAY = '#94a3b8';
 
-function sankeyLinkTargetDisplayName(payload?: {
-  target?: { name?: string };
-  source?: { name?: string; depth?: number };
-}): string {
-  const tDirect = payload?.target;
-  const tNested = (payload as { payload?: { target?: { name?: string } } } | undefined)?.payload?.target;
-  const t = tDirect ?? tNested;
-  if (t && typeof t === 'object' && t.name != null && String(t.name).trim() !== '') {
-    return String(t.name).trim();
-  }
+/** Recharts 桑基节点：name 在节点对象上（见 node payload），不依赖易缺失的 depth 推断连线阶段 */
+function sankeyNodeName(node: unknown): string {
+  if (!node || typeof node !== 'object') return '';
+  const o = node as { name?: unknown };
+  if (o.name != null && String(o.name).trim() !== '') return String(o.name).trim();
   return '';
 }
+
+function isSankeyMicroNodeName(name: string): boolean {
+  return /^T-?\d+$/.test(name.trim());
+}
+
+const SANKEY_LEFT_NODE_NAME = '原始笔记';
 
 function SankeyThemedLink(props: {
   sourceX: number;
@@ -211,7 +212,7 @@ function SankeyThemedLink(props: {
   sourceControlX: number;
   targetControlX: number;
   linkWidth: number;
-  payload?: { target?: { name?: string; depth?: number }; source?: { name?: string; depth?: number } };
+  payload?: { source?: unknown; target?: unknown };
 }) {
   const {
     sourceX,
@@ -223,15 +224,18 @@ function SankeyThemedLink(props: {
     linkWidth,
     payload,
   } = props;
-  const tn = sankeyLinkTargetDisplayName(payload);
-  const targetDepth =
-    payload?.target?.depth ??
-    (payload as { payload?: { target?: { depth?: number } } } | undefined)?.payload?.target?.depth;
-  const toMacroStage = typeof targetDepth === 'number' ? targetDepth >= 2 : !/^T-?\d+$/.test(tn);
-  const color = toMacroStage && tn ? sankeyMacroNodeFill(tn) : SANKEY_LINK_GRAY;
-  const opacity = toMacroStage && tn ? 0.52 : 0.42;
-  /** 略压细流量带，避免大屏下 ribbon 过粗占满视觉 */
-  const w = Math.max(1.2, linkWidth * 0.68);
+  const sName = sankeyNodeName(payload?.source);
+  const tName = sankeyNodeName(payload?.target);
+  /** 仅「微观 T* → 右侧宏观」用宏观色；原始→微观、空名、异常边一律中性灰，避免 depth 缺失时误判 */
+  const isMicroToMacro =
+    isSankeyMicroNodeName(sName) &&
+    tName.length > 0 &&
+    !isSankeyMicroNodeName(tName) &&
+    tName !== SANKEY_LEFT_NODE_NAME;
+  const color = isMicroToMacro ? sankeyMacroNodeFill(tName) : SANKEY_LINK_GRAY;
+  const opacity = isMicroToMacro ? 0.5 : 0.36;
+  /** 限制最大线宽，减轻曲线重叠与 hover 命中区域异常 */
+  const w = Math.max(1.5, Math.min(28, linkWidth * 0.58));
   const d = `M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`;
   return (
     <path
@@ -240,6 +244,7 @@ function SankeyThemedLink(props: {
       stroke={color}
       strokeOpacity={opacity}
       strokeWidth={w}
+      strokeLinejoin="round"
       strokeLinecap="round"
       className="recharts-sankey-link"
     />
@@ -919,9 +924,9 @@ export default function TopicAnalysis() {
             )}
           </div>
 
-          {/* 与评论分析页中间主卡片同构：圆角、描边、滚动在内层 */}
-          <div className="relative flex-1 min-h-[min(400px,70vh)] rounded-2xl border border-slate-200/90 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden flex flex-col">
-            <div className="flex-1 overflow-y-auto overscroll-contain p-5 md:p-8">
+          {/* min-w-0：flex 子项默认可无限变宽，不设则宽桑基会被裁切且无法横向滚动 */}
+          <div className="relative flex-1 min-h-[min(400px,70vh)] min-w-0 rounded-2xl border border-slate-200/90 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden flex flex-col">
+            <div className="flex-1 min-h-0 min-w-0 overflow-auto overscroll-contain p-5 md:p-8">
               {filteredTopics.length === 0 ? (
                 <EmptyState type="search" />
               ) : isNoteSearchActive ? (
@@ -1197,7 +1202,7 @@ function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; all
       };
     }
 
-    const leftNodeName = '原始笔记';
+    const leftNodeName = SANKEY_LEFT_NODE_NAME;
     const microTotals = new Map<number, number>();
     const microToMacro = new Map<string, number>();
 
@@ -1400,15 +1405,15 @@ function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; all
         {sankeyData.nodes.length === 0 || sankeyData.links.length === 0 ? (
           <p className="text-sm text-gray-400 py-12 text-center">暂无可绘制的流向数据</p>
         ) : (
-          <div className="w-full max-w-[min(100%,780px)] mx-auto h-[520px] min-h-[520px] overflow-x-auto overflow-y-hidden overscroll-contain rounded-xl border border-slate-100/80 bg-white/40">
-            <ResponsiveContainerRC width="100%" height="100%" minHeight={520} className="[&_.recharts-surface]:overflow-visible">
+          <div className="w-full min-w-0 max-w-[min(100%,900px)] mx-auto h-[520px] rounded-xl border border-slate-100/80 bg-white/40">
+            <ResponsiveContainerRC width="100%" height="100%" className="[&_.recharts-surface]:overflow-visible">
               <SankeyRC
                 data={sankeyData}
                 nameKey="name"
                 margin={{ top: 20, left: 88, right: 96, bottom: 20 }}
-                nodePadding={3}
+                nodePadding={4}
                 nodeWidth={14}
-                linkCurvature={0.52}
+                linkCurvature={0.45}
                 iterations={64}
                 /** false：碰撞整理不按 y 重排节点，纵向顺序与 data.nodes 一致（同宏观组内细条在上） */
                 sort={false}
@@ -1420,7 +1425,7 @@ function SubTopicPanoramaOverview({ topics, allRecords }: { topics: Topic[]; all
                   sourceControlX: number;
                   targetControlX: number;
                   linkWidth: number;
-                  payload?: { target?: { name?: string } };
+                  payload?: { source?: unknown; target?: unknown };
                 }) => <SankeyThemedLink {...linkProps} />}
                 node={(nodeProps: {
                   x?: number;
@@ -1734,16 +1739,16 @@ function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
       const fill = macroTopicDisplayColor(t.name);
       for (const mt of t.microTopics) {
         const macro = t.name;
-        const macroShort = macro.length > 9 ? `${macro.slice(0, 8)}…` : macro;
-        const short = `${macroShort} · T${mt.id}`;
+        const kw = mt.keywords.slice(0, 10).join('、') || `T${mt.id}`;
+        const short = kw;
         out.push({
           key: `${t.id}-${mt.id}`,
-          short: short.length > 26 ? `${short.slice(0, 24)}…` : short,
+          short,
           macro,
           microId: mt.id,
           value: mt.noteCount,
           fill,
-          kw: mt.keywords.slice(0, 5).join('、') || '—',
+          kw: mt.keywords.slice(0, 8).join('、') || '—',
         });
       }
     }
@@ -1754,6 +1759,15 @@ function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
   }, [topics]);
 
   const chartHeight = Math.min(Math.max(rows.length * 22 + 88, 180), 680);
+  const yAxisWidth = useMemo(() => {
+    const maxLen = rows.reduce((m, r) => Math.max(m, (r.short || '').length), 0);
+    // 10px 字号下：中文/标点平均宽度略小于 10px；估算偏紧，避免左侧留白过大
+    return Math.max(140, Math.min(320, Math.round(maxLen * 8.2 + 14)));
+  }, [rows]);
+  const chartMinWidth = useMemo(() => {
+    // 让超长 Y 轴标签能通过横向滚动完整展示
+    return Math.max(720, yAxisWidth + 460);
+  }, [yAxisWidth]);
 
   if (rows.length === 0) {
     return (
@@ -1780,8 +1794,9 @@ function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
         </div>
       </div>
       <div className="w-full min-w-0 overflow-x-auto">
-        <ResponsiveContainerRC width="100%" height={chartHeight}>
-          <BarChartRC layout="vertical" data={rows} margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+        <div style={{ minWidth: chartMinWidth }}>
+          <ResponsiveContainerRC width="100%" height={chartHeight}>
+            <BarChartRC layout="vertical" data={rows} margin={{ top: 4, right: 18, left: 2, bottom: 4 }}>
             <CartesianGridRC strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
             <XAxisRC
               type="number"
@@ -1789,7 +1804,14 @@ function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
               tick={{ fontSize: 10, fill: '#94a3b8' }}
               tickFormatter={(v: number) => formatNumber(v)}
             />
-            <YAxisRC type="category" dataKey="short" width={148} tick={{ fontSize: 10, fill: '#475569' }} interval={0} />
+            <YAxisRC
+              type="category"
+              dataKey="short"
+              width={yAxisWidth}
+              tick={{ fontSize: 10, fill: '#475569' }}
+                tickMargin={4}
+              interval={0}
+            />
             <TooltipRC
               content={({ active, payload }: any) => {
                 if (!active || !payload?.length) return null;
@@ -1813,7 +1835,8 @@ function MacroMicroUnifiedChart({ topics }: { topics: Topic[] }) {
               ))}
             </BarRC>
           </BarChartRC>
-        </ResponsiveContainerRC>
+          </ResponsiveContainerRC>
+        </div>
       </div>
     </div>
   );

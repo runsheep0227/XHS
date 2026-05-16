@@ -8,5 +8,8 @@
             "label": "Vite visualization (npm run dev)",
             "onAutoForward": "openPreview"
         }
+    },
+    "files.exclude": {
+        "**/.workbuddy": true
     }
 }

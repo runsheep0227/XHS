@@ -1,0 +1,37 @@
+2026-03-20 16:58:27,700 - INFO - 📂 正在加载清洗后的数据: E:\document\PG\studio\content\bertopic_ready_data\bertopic_train_data.csv
+2026-03-20 16:58:27,990 - INFO - ✅ 有效训练数据量: 17675 条
+2026-03-20 16:58:28,024 - INFO - 🔧 初始化 BERTopic 引导式建模流水线...
+2026-03-20 16:58:28,027 - INFO - Use pytorch device_name: cuda:0
+2026-03-20 16:58:28,027 - INFO - Load pretrained SentenceTransformer: paraphrase-multilingual-MiniLM-L12-v2
+2026-03-20 16:58:29,052 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:29,301 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/modules.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:29,661 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:29,966 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:30,275 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:30,460 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:30,760 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:30,913 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/README.md "HTTP/1.1 200 OK"
+2026-03-20 16:58:31,296 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:31,506 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/modules.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:31,813 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:31,977 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:32,327 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-03-20 16:58:32,734 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:33,007 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/config.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:33,557 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:33,800 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/config.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:34,132 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:34,272 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:34,546 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:34,674 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:34,846 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-03-20 16:58:34,957 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-03-20 16:58:36,805 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 "HTTP/1.1 200 OK"
+2026-03-20 16:58:37,347 - INFO - HTTP Request: HEAD https://hf-mirror.com/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-03-20 16:58:37,555 - INFO - HTTP Request: HEAD https://hf-mirror.com/api/resolve-cache/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/e8f8c211226b894fcb81acc59f3b34ba3efd5f42/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-03-20 16:58:37,752 - INFO - HTTP Request: GET https://hf-mirror.com/api/models/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 "HTTP/1.1 200 OK"
+2026-03-20 16:58:38,038 - INFO - 🚀 开始训练 Guided BERTopic (引导式主题建模)...
+2026-03-20 16:59:21,798 - INFO - 🧩 正在执行宏观-微观双层级主题映射...
+2026-03-20 16:59:22,276 - INFO - 💾 正在保存结构化聚类结果...
+2026-03-20 16:59:22,393 - INFO - ✅ 聚类完成！最终宽表已保存至：final_guided_topics.csv
+2026-03-20 16:59:22,393 - INFO - ✅ 层级映射报告已保存至：hierarchical_mapping_report.txt
