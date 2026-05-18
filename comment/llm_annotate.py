@@ -13,7 +13,8 @@ API_KEY = "lm-studio"
 MODEL_NAME = "qwen/qwen3.5-9b"
 
 # ================= 输出路径配置 =================
-OUTPUT_DIR = r"E:\document\PG\studio\comment\bert_data"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "bert_data")
 OUTPUT_FILENAME = "llm_labeled_result"
 
 # 初始化本地OpenAI客户端

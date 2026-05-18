@@ -11,6 +11,8 @@
 依赖：bertopic、sentence-transformers、torch、transformers、pandas（与 content/comment 脚本一致）。
 
 环境变量 JUDGE_EMBEDDING_MODEL：句向量模型名（默认 BAAI/bge-large-zh-v1.5，须与训练时一致）。
+环境变量 JUDGE_LOCAL_FILES_ONLY：默认 1，仅从 HF_HOME 缓存加载句向量，不访问网络；设为 0 可回退在线下载。
+环境变量 HF_HOME / HF_HUB_CACHE：HuggingFace 缓存目录（默认 content/hf_cache 或 ~/.cache/huggingface）。
 环境变量 JUDGE_NORMALIZE_EMBEDDINGS：设为 1/true 时 encode 使用归一化向量（默认关闭，与训练时全文 encode 一致）。
 """
 
@@ -32,11 +34,92 @@ from urllib.parse import urlparse
 # 与 content/predict.py 一致，减少 numba / 缓存问题
 os.environ.setdefault("NUMBA_CACHE_DIR", str(Path(tempfile.gettempdir()) / "numba_cache"))
 os.environ.setdefault("NUMBA_THREADING_LAYER", "omp")
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
-STUDIO_ROOT = Path(__file__).resolve().parent
+# 脚本位于 visualization/，仓库根目录为其上一级
+STUDIO_ROOT = Path(__file__).resolve().parent.parent
 CONTENT_ROOT = STUDIO_ROOT / "content"
 COMMENT_ROOT = STUDIO_ROOT / "comment"
+
+
+def _use_local_hub_only() -> bool:
+    return os.environ.get("JUDGE_LOCAL_FILES_ONLY", "1").lower() not in ("0", "false", "no")
+
+
+def _hub_has_model(hub_dir: Path, repo_folder: str) -> bool:
+    return (hub_dir / repo_folder).is_dir()
+
+
+def _resolve_hf_home() -> Path:
+    if os.environ.get("HF_HOME"):
+        return Path(os.environ["HF_HOME"])
+    repo_folder = "models--BAAI--bge-large-zh-v1.5"
+    candidates = [
+        CONTENT_ROOT / "hf_cache",
+        Path.home() / ".cache" / "huggingface",
+    ]
+    for base in candidates:
+        if not base.is_dir():
+            continue
+        nested_hub = base / "hub"
+        if _hub_has_model(nested_hub, repo_folder) or _hub_has_model(base, repo_folder):
+            return base
+    return candidates[-1]
+
+
+def _hub_cache_dir(hf_home: Path) -> Path:
+    nested = hf_home / "hub"
+    if nested.is_dir() and any(nested.glob("models--*")):
+        return nested
+    if any(hf_home.glob("models--*")):
+        return hf_home
+    return nested
+
+
+def _hf_repo_folder(model_id: str) -> str:
+    return "models--" + model_id.replace("/", "--")
+
+
+def resolve_embedding_model_path(model_id: str) -> str:
+    """离线加载时解析到 hub/snapshots 本地目录，避免 ST 在错误的 ST_HOME 下找不到缓存。"""
+    if not _use_local_hub_only():
+        return model_id
+    hub = Path(os.environ.get("HF_HUB_CACHE") or _hub_cache_dir(_resolve_hf_home()))
+    repo = hub / _hf_repo_folder(model_id)
+    if not repo.is_dir():
+        return model_id
+    ref_main = repo / "refs" / "main"
+    if ref_main.is_file():
+        rev = ref_main.read_text(encoding="utf-8").strip()
+        snap = repo / "snapshots" / rev
+        if snap.is_dir():
+            return str(snap)
+    snaps = repo / "snapshots"
+    if snaps.is_dir():
+        candidates = sorted(snaps.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        for snap in candidates:
+            if snap.is_dir() and ((snap / "modules.json").is_file() or (snap / "config.json").is_file()):
+                return str(snap)
+    return model_id
+
+
+def _configure_hf_cache() -> None:
+    """优先使用已下载的 HuggingFace 缓存，避免启动时访问 hf-mirror 失败。"""
+    hf_home = _resolve_hf_home()
+    os.environ.setdefault("HF_HOME", str(hf_home))
+    os.environ.setdefault("HF_HUB_CACHE", str(_hub_cache_dir(hf_home)))
+    # 勿将 SENTENCE_TRANSFORMERS_HOME 设为 HF_HOME：句向量缓存在 HF_HUB_CACHE 的 models--* 下，
+    # 否则 SentenceTransformer 离线加载会误报「无法连接 huggingface.co」。
+    st_home = os.environ.get("SENTENCE_TRANSFORMERS_HOME", "").strip()
+    if st_home and Path(st_home).resolve() == Path(os.environ["HF_HOME"]).resolve():
+        os.environ.pop("SENTENCE_TRANSFORMERS_HOME", None)
+    if _use_local_hub_only():
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    else:
+        os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
+
+_configure_hf_cache()
 
 BERTOPIC_MODEL_DIR = Path(
     os.environ.get("JUDGE_BERTOPIC_DIR", str(CONTENT_ROOT / "bertopic_results_optimized" / "saved_model"))
@@ -151,8 +234,21 @@ def load_models() -> None:
         if not STATE.micro_to_macro:
             LOG.warning("未读到 micro→macro 映射（%s），将只显示微观主题编号", TOPIC_STATS_CSV)
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        LOG.info("加载句向量模型 %s（设备 %s）…", DEFAULT_EMBEDDING_MODEL, device)
-        embedding_model = SentenceTransformer(DEFAULT_EMBEDDING_MODEL, device=device)
+        local_only = _use_local_hub_only()
+        embed_path = resolve_embedding_model_path(DEFAULT_EMBEDDING_MODEL)
+        LOG.info(
+            "加载句向量模型 %s（路径 %s，设备 %s，local_files_only=%s，HF_HOME=%s）…",
+            DEFAULT_EMBEDDING_MODEL,
+            embed_path,
+            device,
+            local_only,
+            os.environ.get("HF_HOME"),
+        )
+        embedding_model = SentenceTransformer(
+            embed_path,
+            device=device,
+            local_files_only=local_only,
+        )
         embedding_model.max_seq_length = 512
         STATE.embedding_model = embedding_model
         # load 时传入 embedding_model；推理时仍用「外部向量 + transform(embeddings=…)」双保险（部分 bertopic 版本 load 后内部仍丢引用）

@@ -43,7 +43,7 @@
 2. **`clean_data.py`**：读取 `cleaned_com.json`，符号与长度规则、无意义词表过滤、再次去重 → **`bert_data/final_cleaned_comments.json`**、**`bert_data/bert_train_ready.csv`**、**`bert_data/clean_data_report.txt`**。
 3. **`random_sample.py`**：从 `final_cleaned_comments.json` 随机抽样（脚本内 `SAMPLE_SIZE`，当前为 **8000**，`random.seed(42)`）→ **`bert_data/llm_sample_data.json`**。
 4. **`llm_annotate.py`**：调用兼容 OpenAI API 的本地服务（如 LM Studio），对抽样评论打 `-1/0/1`（失败行可能为 `2` 或 `-2`）→ **`bert_data/llm_labeled_result.csv`** 与 **`bert_data/llm_labeled_result_stats.csv`**。  
-   **注意**：脚本内 `OUTPUT_DIR` 当前为绝对路径 `E:\document\PG\studio\comment\bert_data`，换机器时请改为基于 `__file__` 的 `bert_data` 目录。
+   **输出**：`bert_data/llm_labeled_result.csv`（路径相对本脚本目录）。
 5. **`split_dataset.py`**：读取 `llm_labeled_result.csv`，只保留标签 `{-1,0,1}` 且非空 `content`，按 **8:1:1** 分层划分；可选 **`--train_neg_multiplier`** 仅对训练集负样本过采样。输出 **`bert_data/train.csv`**、`val.csv`、`test.csv`。
 6. **`train_roberta.py`**：读取 `train.csv` / `val.csv`，训练三分类模型；训练过程 checkpoint 在 **`checkpoint_temp/`**（或带 `run_name` 的子目录），验证最优模型导出到 **`saved_model/`**（默认 `--export_dir saved_model`）。
 7. **`evaluate_model.py`**：在 **`bert_data/test.csv`** 上评估 **`saved_model/`**，生成 **`results/`** 下报告、多张 PNG 与 **`eval_viz_payload.json`**（供前端复现 ROC/PR 等）。
@@ -125,7 +125,7 @@
 - `comment/predictions` API（分页读 `predicted_comments.json`，见 `vite.config.ts`）
 - `comment/training_history`（解析 `checkpoint_temp` 下 `trainer_state.json`）
 
-在线「笔记 + 评论」研判由根目录 **`judge_server.py`**（默认 `127.0.0.1:18999`）提供：评论情感默认加载 `comment/checkpoint_temp` 最新 checkpoint 或 `JUDGE_COMMENT_MODEL_DIR` 指向的目录；与 `evaluate_model.py` 的类别 id→极性映射一致。
+在线「笔记 + 评论」研判由 **`visualization/judge_server.py`**（`npm run dev` 时自动拉起，默认 `127.0.0.1:18999`）提供：评论情感默认加载 `comment/checkpoint_temp` 最新 checkpoint 或 `JUDGE_COMMENT_MODEL_DIR` 指向的目录；与 `evaluate_model.py` 的类别 id→极性映射一致。
 
 跨模块关联键为 **`note_id`**：前端将评论预测与 `content/bertopic_results_optimized/final_pro_topics.csv` 按 `note_id` 合并，展示笔记宏观主题与评论情感对照（见 `visualization/src/data/commentLiveData.ts`）。
 
@@ -133,13 +133,15 @@
 
 ## 依赖与环境
 
-- **Python**：`torch`、`transformers`、`datasets`、`pandas`、`scikit-learn`、`tqdm`；评估与作图需要 `matplotlib`、`seaborn`。
+- **Python**：与仓库根目录 **`requirements_backup.txt`** / **`environment.yml`** 一致（`torch` 需单独按 [PyTorch 官网](https://pytorch.org/get-started/locally/) 或 conda 安装）。
+- **本模块常用包**：`transformers`、`datasets`、`pandas`、`scikit-learn`、`tqdm`、`matplotlib`、`seaborn`、`openai`。
 - **LLM 标注**：`openai` 客户端 + 本地 **`BASE_URL`**（默认 `http://127.0.0.1:1234/v1`）与 **`MODEL_NAME`**；`llm_annotate.py` 中 `MAX_WORKERS` 当前为 1，可按接口稳定性调高。
 
-安装示例：
+安装示例（仓库根目录）：
 
 ```bash
-pip install torch transformers datasets pandas scikit-learn tqdm matplotlib seaborn openai
+conda env create -f environment.yml
+conda activate studio
 ```
 
 ---
@@ -179,14 +181,14 @@ python predict_all.py --input bert_data/final_cleaned_comments.json --model-dir 
 开发研判服务（仓库根目录，需已训练模型与 content 侧 BERTopic）：
 
 ```bash
-python judge_server.py
+cd visualization && python judge_server.py
 ```
 
 ---
 
 ## 使用注意
 
-1. **路径可移植**：`clean_com.py`、`clean_data.py`、`split_dataset.py`、`predict_all.py` 等多基于脚本目录拼路径；**务必**将 `llm_annotate.py` 的 `OUTPUT_DIR` 改为本机 `comment/bert_data`。
+1. **路径可移植**：各脚本输出目录多基于 `__file__` 解析；`llm_annotate.py` 写入同级的 `bert_data/`。
 2. **标签与 CSV**：划分与评估脚本将 `label` 转为数值；Excel 编辑后若出现非法 `label`，`split_dataset` 会剔除并打印报告。
 3. **长文本**：训练与推理默认 **`max_length=512`**，与旧版 128 配置不同，需与导出模型一致。
 4. **全量 JSON 体积**：`predicted_comments.json` 行数大，前端通过分页 API 或聚合 CSV 加载，不宜整文件进浏览器。

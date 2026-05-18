@@ -46,6 +46,10 @@ E:\document\PG\studio\content\
 
 ### 2. 安装依赖
 
+**Python（研判服务 `judge_server.py`）**：在仓库根目录使用 `environment.yml` 或 `requirements_backup.txt`，见根目录 [README.md](../README.md)。
+
+**前端**：
+
 ```bash
 # 进入项目目录
 cd E:\document\PG\studio\visualization

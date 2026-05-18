@@ -130,7 +130,7 @@ topic_model = BERTopic.load("bertopic_results_optimized/saved_model", embedding_
 # 需与训练一致：先对 cleaned_full_text encode，再 transform(cleaned_seg_text, embeddings=...)
 ```
 
-在线研判见仓库根目录 **`judge_server.py`**（笔记正文走 BERTopic，评论走 comment 情感模型）。
+在线研判见 **`visualization/judge_server.py`**（笔记正文走 BERTopic，评论走 comment 情感模型；`npm run dev` 时由 Vite 自动启动）。
 
 ---
 
@@ -154,7 +154,7 @@ topic_model = BERTopic.load("bertopic_results_optimized/saved_model", embedding_
 - `rawdata/search_contents_*.json`（按 `note_id` 合并互动量、标签、`note_url` 等）
 - 可选 `bertopic_results_optimized/topic_distribution_stats.csv`（模型质量图，见 `ModelQualityCharts.tsx`）
 
-**`judge_server.py`** 加载 `content/bertopic_results_optimized/saved_model`，环境变量：
+**`visualization/judge_server.py`** 加载 `content/bertopic_results_optimized/saved_model`，环境变量：
 
 - `JUDGE_BERTOPIC_DIR` — 模型目录  
 - `JUDGE_EMBEDDING_MODEL` — 默认 `BAAI/bge-large-zh-v1.5`  
@@ -164,18 +164,14 @@ topic_model = BERTopic.load("bertopic_results_optimized/saved_model", embedding_
 
 ---
 
-## Python 依赖（示例）
+## Python 依赖
 
-```text
-pandas numpy torch
-jieba
-bertopic
-sentence-transformers
-umap-learn
-hdbscan
-scikit-learn
-matplotlib seaborn
-plotly kaleido   # 仅桑基图 HTML/PNG 导出需要
+与仓库根目录 **`requirements_backup.txt`** / **`environment.yml`** 一致。本模块除通用科学栈外主要用到：`jieba`、`bertopic`、`sentence-transformers`、`umap-learn`、`hdbscan`；桑基图与词云为可选（`plotly`、`kaleido`、`wordcloud`，见备份清单注释）。
+
+```bash
+# 仓库根目录
+conda env create -f environment.yml
+conda activate studio
 ```
 
 ---
@@ -213,7 +209,7 @@ cd ../visualization
 npm run dev
 
 # 另开终端
-python judge_server.py
+cd visualization && python judge_server.py
 ```
 
 ---

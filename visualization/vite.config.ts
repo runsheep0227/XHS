@@ -1,4 +1,5 @@
 import path from "path"
+import os from "node:os"
 import { fileURLToPath } from "node:url"
 import { exec, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import react from "@vitejs/plugin-react"
@@ -297,16 +298,40 @@ function localRepoVitePlugin(): Plugin {
       async function ensureJudgeServer() {
         if (judgeReady) return
         if (judgeProc) return
-        const script = path.join(STUDIO_ROOT, 'judge_server.py')
+        const script = path.join(__dirname, 'judge_server.py')
         if (!fs.existsSync(script)) {
           judgeStartErr =
             `未找到 judge_server.py：${script}。` +
-            `该文件应在仓库根目录，供开发时常驻加载 BERTopic / 评论模型；若尚未添加此脚本，「在线交互」页将无法推理。`
+            `该文件应在 visualization/ 目录，供开发时常驻加载 BERTopic / 评论模型；若尚未添加此脚本，「在线交互」页将无法推理。`
           console.error('[vite]', judgeStartErr)
           return
         }
         judgeStartErr = null
         judgeStderrTail = ''
+        const resolveHfPaths = (): { hfHome: string; hfHubCache: string } => {
+          const bgeRepo = 'models--BAAI--bge-large-zh-v1.5'
+          const hubDirFor = (base: string): string | null => {
+            const nested = path.join(base, 'hub')
+            if (fs.existsSync(path.join(nested, bgeRepo))) return nested
+            if (fs.existsSync(path.join(base, bgeRepo))) return base
+            return null
+          }
+          if (process.env.HF_HOME) {
+            const hfHome = process.env.HF_HOME
+            return {
+              hfHome,
+              hfHubCache: process.env.HF_HUB_CACHE || hubDirFor(hfHome) || path.join(hfHome, 'hub'),
+            }
+          }
+          const studio = path.join(CONTENT_ROOT, 'hf_cache')
+          const user = path.join(os.homedir(), '.cache', 'huggingface')
+          for (const base of [studio, user]) {
+            const hub = hubDirFor(base)
+            if (hub) return { hfHome: base, hfHubCache: hub }
+          }
+          return { hfHome: user, hfHubCache: path.join(user, 'hub') }
+        }
+        const { hfHome, hfHubCache } = resolveHfPaths()
         judgeProc = spawn(py, [script], {
           cwd: STUDIO_ROOT,
           env: {
@@ -314,6 +339,17 @@ function localRepoVitePlugin(): Plugin {
             PYTHONUTF8: '1',
             JUDGE_SERVER_PORT: String(judgePort),
             JUDGE_SERVER_HOST: judgeHost,
+            HF_HOME: hfHome,
+            HF_HUB_CACHE: process.env.HF_HUB_CACHE || hfHubCache,
+            JUDGE_LOCAL_FILES_ONLY: process.env.JUDGE_LOCAL_FILES_ONLY ?? '1',
+            HF_HUB_OFFLINE:
+              process.env.JUDGE_LOCAL_FILES_ONLY === '0'
+                ? process.env.HF_HUB_OFFLINE
+                : (process.env.HF_HUB_OFFLINE ?? '1'),
+            TRANSFORMERS_OFFLINE:
+              process.env.JUDGE_LOCAL_FILES_ONLY === '0'
+                ? process.env.TRANSFORMERS_OFFLINE
+                : (process.env.TRANSFORMERS_OFFLINE ?? '1'),
           },
           stdio: 'pipe',
         })
@@ -517,9 +553,22 @@ function localRepoVitePlugin(): Plugin {
   }
 }
 
+/** Cursor 与 VS Code 的 Simple Browser 协议不同；误用 vscode:// 会在已装 VS Code 时弹出独立 VS Code 窗口。 */
+function resolveEditorUriScheme(): 'cursor' | 'vscode' {
+  const hook = String(process.env.VSCODE_IPC_HOOK || '').toLowerCase()
+  if (
+    process.env.CURSOR_TRACE_ID ||
+    process.env.CURSOR_SESSION_ID ||
+    hook.includes('cursor')
+  ) {
+    return 'cursor'
+  }
+  return 'vscode'
+}
+
 /**
- * 在 Cursor / VS Code 集成终端里启动 dev 时，用 vscode:// 打开「Simple Browser」内嵌页（非系统浏览器）。
- * - VITE_OPEN_SIMPLE_BROWSER=0：不自动打开
+ * 在 Cursor / VS Code 集成终端里启动 dev 时，用编辑器协议打开「Simple Browser」内嵌页（非系统浏览器）。
+ * - VITE_OPEN_SIMPLE_BROWSER=0：不自动打开（推荐在 Cursor 且同时安装了 VS Code 时使用）
  * - VITE_OPEN_SIMPLE_BROWSER=1：任意终端都尝试打开
  * - 未设置：仅在检测到集成终端时自动打开
  */
@@ -548,7 +597,8 @@ function openEmbeddedSimpleBrowserPlugin(port: number): Plugin {
 
         done = true
         const pageUrl = `http://127.0.0.1:${port}`
-        const uri = `vscode://vscode.simple-browser/show?url=${encodeURIComponent(pageUrl)}`
+        const scheme = resolveEditorUriScheme()
+        const uri = `${scheme}://vscode.simple-browser/show?url=${encodeURIComponent(pageUrl)}`
         const cmd =
           process.platform === 'win32'
             ? `cmd /c start "" "${uri}"`

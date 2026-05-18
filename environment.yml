@@ -2,6 +2,9 @@
 # Studio 项目 Conda 环境（与 requirements_backup.txt 配套）
 # =============================================================================
 #
+# 覆盖范围：comment/（评论情感）、content/（BERTopic 主题）、
+#           visualization/judge_server.py（开发时在线研判，由 Vite 可选拉起）。
+#
 # 在仓库根目录（本文件与 requirements_backup.txt 同级）执行：
 #
 #   conda env create -f environment.yml
@@ -11,11 +14,15 @@
 #
 #   conda env update -f environment.yml --prune
 #
+# 前端仪表盘（visualization/）另需 Node.js >= 18 与 pnpm，见 visualization/README.md。
+#
 # =============================================================================
 # GPU 说明
 # - 默认安装 CPU 版 PyTorch（cpuonly），任意机器可解环境。
-# - 若要用 NVIDIA GPU：删掉依赖里的 cpuonly，并取消下面「GPU 示例」三行的注释，
+# - 若要用 NVIDIA GPU：删掉依赖里的 cpuonly，并取消下面「GPU 示例」一行的注释，
 #   同时把 pytorch-cuda= 改成与你驱动匹配的版本（以 https://pytorch.org/ 为准）。
+# - RTX 50 等新架构若稳定版 torch 不支持，请按 content/content_README.md 改用
+#   PyTorch Nightly/CUDA 构建，并自行 pip 覆盖 conda 中的 torch 三件套。
 # =============================================================================
 
 name: studio

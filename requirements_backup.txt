@@ -19,38 +19,40 @@
 #
 # 【说明】
 # - 本文件替代原先 conda/pip freeze 中带 file:// 的条目，保证 pip 可从 PyPI 拉取。
-# - 版本号在「可安装」与「与当前代码兼容」之间折中；若需严格复现某次实验，可在新环境中
+# - 版本区间在「可安装」与「与当前代码兼容」之间折中；若需严格复现某次实验，可在新环境中
 #   pip freeze > requirements-lock.txt 再单独存档。
 # - 未将 torch 写入本列表，避免与 CUDA 变体冲突；请务必先装 torch 再装 transformers 等。
+# - visualization/judge_server.py 与 content/、comment/ 推理脚本共用本清单（无额外包）。
 # =============================================================================
 
 # --- 数值、表格与通用工具 ---
 numpy>=1.26.4,<2.3
 pandas>=2.2.0,<3.2
-scipy>=1.11.0,<1.15
+scipy>=1.11.0,<1.16
 tqdm>=4.66.0
 
 # --- 机器学习 / 传统 ML ---
 scikit-learn>=1.5.0,<1.9
 
-# --- HuggingFace：评论情感微调、推理、评估（comment/）---
+# --- HuggingFace：评论情感微调、推理、评估（comment/、visualization/judge_server.py）---
 # 依赖 torch（需预先安装）。accelerate 为 Trainer 常用可选加速项。
 transformers>=4.44.0,<5.3
 datasets>=3.0.0,<5.6
 accelerate>=0.34.0,<1.13
 safetensors>=0.4.0
+huggingface-hub>=0.23.0,<1.3
 
 # --- 大模型标注 OpenAI 兼容 API（comment/llm_annotate.py）---
 openai>=1.40.0,<3
 
 # --- 可视化（comment/evaluate_model.py、content/bertopic_visualize.py）---
-matplotlib>=3.8.0,<3.12
+matplotlib>=3.8.0,<3.13
 seaborn>=0.13.0,<0.14
 
 # --- 中文分词（content/clean_data.py）---
 jieba>=0.42.1
 
-# --- 主题建模链路（content/：bertopic_train.py、predict.py、bertopic_visualize.py）---
+# --- 主题建模链路（content/、visualization/judge_server.py）---
 bertopic>=0.16.0,<0.18
 sentence-transformers>=3.0.0,<5.3
 umap-learn>=0.5.6,<0.6
@@ -59,18 +61,31 @@ hdbscan>=0.8.33,<0.9
 # --- 可选：bertopic_visualize 词云图（未安装则跳过图 10）---
 wordcloud>=1.9.3,<1.11
 
+# --- 可选：bertopic_visualize 桑基图 HTML/PNG（未安装则跳过图 11）---
+plotly>=5.18.0,<7
+kaleido>=0.2.1,<1.3
+
 # =============================================================================
 # 以下为「分组速查」（内容与本文件上文重复，勿与 pip -r 同时使用；仅作说明）
 # =============================================================================
 # [comment 最小集]
-#   numpy pandas scipy tqdm scikit-learn torch(transformers官网先装)
-#   transformers datasets accelerate safetensors openai matplotlib seaborn
+#   numpy pandas scipy tqdm scikit-learn torch（transformers 官网先装）
+#   transformers datasets accelerate safetensors huggingface-hub
+#   openai matplotlib seaborn
 #
 # [content 最小集]
-#   numpy pandas scipy tqdm scikit-learn torch(transformers官网先装)
+#   numpy pandas scipy tqdm scikit-learn torch（transformers 官网先装）
 #   jieba matplotlib seaborn bertopic sentence-transformers umap-learn hdbscan
-#   wordcloud（可选）
+#   wordcloud plotly kaleido（后三者可选，对应可视化图 10/11）
+#
+# [visualization 研判服务 judge_server.py]
+#   与 comment + content 推理子集相同：torch transformers bertopic
+#   sentence-transformers pandas（及上文 umap/hdbscan 等由 bertopic 拉起）
+#
+# [前端 visualization/]
+#   Node.js >= 18，pnpm；见 visualization/package.json，与 pip 无关。
 #
 # [本项目未在 .py 中直接 import、freeze 里曾出现的环境遗留包]
-#   playwright、plotly、openpyxl、gensim、evaluate、peft 等可按需自行加入，非跑通 comment/content 主流程所必需。
+#   playwright（在 visualization/package.json 中，非 Python）、openpyxl、gensim、
+#   evaluate、peft 等可按需自行加入，非跑通 comment/content/研判主流程所必需。
 # =============================================================================

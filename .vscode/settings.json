@@ -6,7 +6,7 @@
     "remote.portsAttributes": {
         "1306": {
             "label": "Vite visualization (npm run dev)",
-            "onAutoForward": "openPreview"
+            "onAutoForward": "notify"
         }
     },
     "files.exclude": {
